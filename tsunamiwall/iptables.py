@@ -25,13 +25,17 @@ def run_iptables(*args: str) -> None:
         raise IptablesError(msg)
 
 
+def _chain_exists(chain: str) -> bool:
+    """Return True if the given custom chain already exists."""
+    cmd = ["iptables", "-w", "10", "-n", "-L", chain]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    return result.returncode == 0
+
+
 def ensure_chain(chain: str) -> None:
     """Create the chain if it does not exist."""
-    try:
+    if not _chain_exists(chain):
         run_iptables("-N", chain)
-    except IptablesError:
-        # Chain likely already exists; ignore.
-        pass
 
 
 def flush_chain(chain: str) -> None:

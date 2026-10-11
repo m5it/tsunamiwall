@@ -17,7 +17,8 @@ def test_ensure_chain_creates(chain):
         pytest.skip("iptables not available")
     reset(chain)
     ensure_chain(chain)
-    # Should not raise.
+    # Should not raise; calling twice should also be safe.
+    ensure_chain(chain)
 
 
 def _iptables_available() -> bool:

@@ -81,6 +81,12 @@ sudo .venv/bin/python main.py deny 8080
 sudo .venv/bin/python main.py logs
 ```
 
+### Live honeypot hit monitor
+Full-screen real-time table. Press **q** to quit.
+```bash
+sudo .venv/bin/python main.py watch
+```
+
 ### Emergency reset
 If anything goes wrong, this stops the daemon and flushes every TsunamiWall rule:
 ```bash

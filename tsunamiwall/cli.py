@@ -95,6 +95,16 @@ def cmd_logs(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_watch(args: argparse.Namespace) -> int:
+    cfg = _config(args)
+    if not os.path.exists(cfg.hit_log_path):
+        print("No honeypot logs yet.")
+        return 0
+    from .tui import run_watch
+
+    return run_watch(cfg.hit_log_path)
+
+
 def cmd_start(args: argparse.Namespace) -> int:
     from .daemon import run_daemon
 
@@ -128,6 +138,9 @@ def main(argv: list[str] | None = None) -> int:
     logs_p = sub.add_parser("logs", help="show recent honeypot hit logs")
     _add_config_arg(logs_p)
 
+    watch_p = sub.add_parser("watch", help="live TUI of honeypot hits")
+    _add_config_arg(watch_p)
+
     allow_p = sub.add_parser("allow", help="explicitly allow one or more ports")
     allow_p.add_argument("port", type=int, nargs="?", help="single port to allow")
     allow_p.add_argument("--file", "-f", metavar="PATH", help="file with one port per line")
@@ -150,6 +163,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_reset(args)
     if args.command == "logs":
         return cmd_logs(args)
+    if args.command == "watch":
+        return cmd_watch(args)
     if args.command == "allow":
         return cmd_allow(args)
     if args.command == "deny":
