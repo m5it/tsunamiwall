@@ -52,3 +52,4 @@ Key values:
 - `run_dir = "/run/tsunamiwall"`
 - `socket_path = "/run/tsunamiwall/daemon.sock"`
 - `max_honeypots = 900`
+- `trusted_ips = []` — source IPs/CIDRs allowed before any port filtering

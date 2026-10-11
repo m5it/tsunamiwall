@@ -128,7 +128,12 @@ class Daemon:
 
         # Rewrite iptables.
         honeypot_ports = set(self.honeypots.keys())
-        build_rules(self.cfg.iptables_chain, managed_allowed, honeypot_ports)
+        build_rules(
+            self.cfg.iptables_chain,
+            managed_allowed,
+            honeypot_ports,
+            trusted_ips=self.cfg.trusted_ips,
+        )
         logger.debug("Reconciled: allowed=%s honeypots=%d", sorted(managed_allowed), len(honeypot_ports))
 
     async def _stop_all_honeypots(self) -> None:

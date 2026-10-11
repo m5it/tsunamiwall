@@ -16,6 +16,14 @@ discovery_interval: 30.0
 # Name of the iptables chain managed by TsunamiWall.
 iptables_chain: "TSUNAMIWALL"
 
+# Trusted source IPs or CIDR blocks that bypass the firewall entirely.
+# Add your management IP here so you do not lock yourself out.
+trusted_ips: []
+# trusted_ips:
+#   - "203.0.113.45"
+#   - "198.51.100.0/24"
+#   - "2001:db8::/32"
+
 # Directories and file names.
 log_dir: "/var/log/tsunamiwall"
 run_dir: "/run/tsunamiwall"

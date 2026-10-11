@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import ipaddress
 import os
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,9 @@ class Config:
     # soft nofile limits (1024) to avoid startup failures. Raise on servers
     # configured with higher limits if you want wider honeypot coverage.
     max_honeypots: int = 900
+    # Trusted source IPs or CIDR blocks that are always allowed inbound before
+    # any port filtering. Use this to prevent locking yourself out.
+    trusted_ips: list[str] = field(default_factory=list)
 
     def __post_init__(self):
         if not 1 <= self.honeypot_start <= 65535:
@@ -39,6 +43,11 @@ class Config:
             raise ValueError("log_dir must be an absolute path")
         if not os.path.isabs(self.run_dir):
             raise ValueError("run_dir must be an absolute path")
+        for ip in self.trusted_ips:
+            try:
+                ipaddress.ip_network(ip, strict=False)
+            except ValueError as exc:
+                raise ValueError(f"trusted_ips contains invalid IP/CIDR: {ip}") from exc
 
     @property
     def hit_log_path(self) -> str:
@@ -57,7 +66,15 @@ def _coerce_field(name: str, value: Any, field_type: str | type) -> Any:
     as a string in Python 3.10+ when evaluated lazily, so we accept both the
     actual type and its string name.
     """
-    type_name = field_type if isinstance(field_type, str) else field_type.__name__
+    if isinstance(field_type, str):
+        type_name = field_type.split("[", 1)[0]
+    else:
+        type_name = getattr(field_type, "__name__", "")
+    # Generic aliases like list[str] report __name__ as 'list' as well.
+    if type_name == "list":
+        if not isinstance(value, list):
+            raise TypeError(f"Config key {name} must be a list")
+        return [str(v) for v in value]
     if type_name == "int":
         return int(value)
     if type_name == "float":

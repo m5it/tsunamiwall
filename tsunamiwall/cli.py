@@ -99,15 +99,22 @@ def main(argv: list[str] | None = None) -> int:
     start_p = sub.add_parser("start", help="start the TsunamiWall daemon (runs in foreground)")
     _add_config_arg(start_p)
 
-    sub.add_parser("status", help="show allowed ports and active honeypots")
-    sub.add_parser("reset", help="emergency stop: flush rules and exit daemon")
-    sub.add_parser("logs", help="show recent honeypot hit logs")
+    status_p = sub.add_parser("status", help="show allowed ports and active honeypots")
+    _add_config_arg(status_p)
+
+    reset_p = sub.add_parser("reset", help="emergency stop: flush rules and exit daemon")
+    _add_config_arg(reset_p)
+
+    logs_p = sub.add_parser("logs", help="show recent honeypot hit logs")
+    _add_config_arg(logs_p)
 
     allow_p = sub.add_parser("allow", help="explicitly allow a port")
     allow_p.add_argument("port", type=int)
+    _add_config_arg(allow_p)
 
     deny_p = sub.add_parser("deny", help="remove an allowed port")
     deny_p.add_argument("port", type=int)
+    _add_config_arg(deny_p)
 
     args = parser.parse_args(argv)
     if args.command == "start":

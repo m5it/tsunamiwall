@@ -66,34 +66,40 @@ def build_rules(
     chain: str,
     allowed_ports: Iterable[int],
     honeypot_ports: Iterable[int],
+    trusted_ips: Iterable[str] | None = None,
 ) -> None:
     """Rebuild the TsunamiWall chain with the current policy.
 
     Rules (in order):
-      1. Allow loopback.
-      2. Allow established/related.
-      3. Allow explicit real-service ports.
-      4. Allow honeypot ports.
-      5. Log and drop everything else.
+      1. Allow trusted source IPs/CIDRs.
+      2. Allow loopback.
+      3. Allow established/related.
+      4. Allow explicit real-service ports.
+      5. Allow honeypot ports.
+      6. Log and drop everything else.
     """
     allowed = sorted(set(allowed_ports))
     honeypots = sorted(set(honeypot_ports))
+    trusted = sorted(set(trusted_ips or ()))
 
     ensure_chain(chain)
     flush_chain(chain)
 
-    # 1. Loopback
+    # 1. Trusted IPs/CIDRs always bypass the firewall.
+    for ip in trusted:
+        run_iptables("-A", chain, "-s", ip, "-j", "ACCEPT")
+    # 2. Loopback
     run_iptables("-A", chain, "-i", "lo", "-j", "ACCEPT")
-    # 2. Existing connections
+    # 3. Existing connections
     run_iptables("-A", chain, "-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT")
-    # 3. Real services (TCP+UDP)
+    # 4. Real services (TCP+UDP)
     for port in allowed:
         run_iptables("-A", chain, "-p", "tcp", "--dport", str(port), "-j", "ACCEPT")
         run_iptables("-A", chain, "-p", "udp", "--dport", str(port), "-j", "ACCEPT")
-    # 4. Honeypot ports (TCP only in v1)
+    # 5. Honeypot ports (TCP only in v1)
     for port in honeypots:
         run_iptables("-A", chain, "-p", "tcp", "--dport", str(port), "-j", "ACCEPT")
-    # 5. Default drop with logging
+    # 6. Default drop with logging
     run_iptables("-A", chain, "-j", "LOG", "--log-prefix", "TSUNAMIWALL-DROP: ", "--log-level", "4")
     run_iptables("-A", chain, "-j", "DROP")
 
