@@ -1,0 +1,24 @@
+# TsunamiWall example configuration file.
+# Copy this to /etc/tsunamiwall/config.yaml or ~/.config/tsunamiwall/config.yaml
+# and edit as needed. All keys are optional; missing values use built-in defaults.
+
+# Port range used for honeypot listeners.
+honeypot_start: 10000
+honeypot_end: 65535
+
+# Maximum number of honeypot listeners to start. Keep this below the Linux
+# process soft file-descriptor limit (usually 1024) unless you have raised it.
+max_honeypots: 900
+
+# How often (seconds) to re-scan listening sockets and reconcile rules.
+discovery_interval: 30.0
+
+# Name of the iptables chain managed by TsunamiWall.
+iptables_chain: "TSUNAMIWALL"
+
+# Directories and file names.
+log_dir: "/var/log/tsunamiwall"
+run_dir: "/run/tsunamiwall"
+socket_path: "/run/tsunamiwall/daemon.sock"
+pid_path: "/run/tsunamiwall/daemon.pid"
+hit_log_name: "hits.logl"
