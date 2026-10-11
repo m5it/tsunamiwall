@@ -1,4 +1,5 @@
-#!/usr/bin/env bash
+#!/bin/sh
+
 # Extract unique attacker source ports from iptables/dmesg drop logs.
 #
 # Usage:
@@ -6,12 +7,13 @@
 #   sudo dmesg | ./extract-attack-ports.sh --src-ip    # unique attacker IPs
 #   sudo dmesg | ./extract-attack-ports.sh --dst-port  # unique destination ports probed
 #
-# Works with both "IPTABLES-DROP:" and "TSUNAMIWALL-DROP:" log prefixes.
+# Works with these common log prefixes (case-insensitive):
+#   IPTABLES-DROP:  TSUNAMIWALL-DROP:  iptables-dropped:  ip6tables-dropped:
 
-set -euo pipefail
+set -eu
 
 FIELD="SPT"
-while [[ $# -gt 0 ]]; do
+while [ $# -gt 0 ]; do
     case "$1" in
         --src-ip|--ip|--src)
             FIELD="SRC"
@@ -36,12 +38,13 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Read stdin, find drop lines, extract FIELD=val as a standalone token,
-# strip the field name, dedupe and sort.
-grep -E 'IPTABLES-DROP:|TSUNAMIWALL-DROP:' | \
+# Case-insensitive match for iptables/ip6tables/TsunamiWall drop prefixes.
+# Extract the requested FIELD=value token, drop the field name, dedupe and sort.
+grep -iE '(iptables|ip6tables).*(drop|dropped):|tsunamiwall.*drop:' | \
 grep -oE "${FIELD}=[^[:space:]]+" | \
 cut -d'=' -f2 | \
-if [[ "${FIELD}" == "SRC" || "${FIELD}" == "DST" ]]; then
+if [ "${FIELD}" = "SRC" ] || [ "${FIELD}" = "DST" ]; then
+    # IPv4 addresses sort numerically by octet; IPv6 addresses fall back to lexicographic.
     sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | uniq
 else
     sort -n | uniq
