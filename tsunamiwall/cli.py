@@ -50,12 +50,32 @@ def cmd_status(args: argparse.Namespace) -> int:
     return _print_response(_send(args, {"action": "status"}))
 
 
+def _read_ports_file(path: str) -> list[int]:
+    """Read a file containing one port number per line, ignoring blanks/comments."""
+    ports: list[int] = []
+    with open(path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            ports.append(int(line))
+    return ports
+
+
 def cmd_allow(args: argparse.Namespace) -> int:
-    return _print_response(_send(args, {"action": "allow", "port": args.port}))
+    if args.file:
+        ports = _read_ports_file(args.file)
+    else:
+        ports = [args.port]
+    return _print_response(_send(args, {"action": "allow_many", "ports": ports}))
 
 
 def cmd_deny(args: argparse.Namespace) -> int:
-    return _print_response(_send(args, {"action": "deny", "port": args.port}))
+    if args.file:
+        ports = _read_ports_file(args.file)
+    else:
+        ports = [args.port]
+    return _print_response(_send(args, {"action": "deny_many", "ports": ports}))
 
 
 def cmd_reset(args: argparse.Namespace) -> int:
@@ -108,15 +128,20 @@ def main(argv: list[str] | None = None) -> int:
     logs_p = sub.add_parser("logs", help="show recent honeypot hit logs")
     _add_config_arg(logs_p)
 
-    allow_p = sub.add_parser("allow", help="explicitly allow a port")
-    allow_p.add_argument("port", type=int)
+    allow_p = sub.add_parser("allow", help="explicitly allow one or more ports")
+    allow_p.add_argument("port", type=int, nargs="?", help="single port to allow")
+    allow_p.add_argument("--file", "-f", metavar="PATH", help="file with one port per line")
     _add_config_arg(allow_p)
 
-    deny_p = sub.add_parser("deny", help="remove an allowed port")
-    deny_p.add_argument("port", type=int)
+    deny_p = sub.add_parser("deny", help="remove one or more allowed ports")
+    deny_p.add_argument("port", type=int, nargs="?", help="single port to deny")
+    deny_p.add_argument("--file", "-f", metavar="PATH", help="file with one port per line")
     _add_config_arg(deny_p)
 
     args = parser.parse_args(argv)
+    for cmd in ("allow", "deny"):
+        if args.command == cmd and args.port is None and not args.file:
+            parser.error(f"{cmd} requires either a PORT argument or --file")
     if args.command == "start":
         return cmd_start(args)
     if args.command == "status":

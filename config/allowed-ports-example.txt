@@ -1,0 +1,7 @@
+# Example ports file for 'tsunamiwall allow --file' or 'tsunamiwall deny --file'.
+# One port per line. Blank lines and lines starting with '#' are ignored.
+
+22
+80
+443
+8080

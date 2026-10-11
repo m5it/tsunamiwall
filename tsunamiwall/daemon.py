@@ -195,11 +195,24 @@ class Daemon:
             self.allowed_ports.add(port)
             await self._reconcile()
             return {"ok": True, "allowed_port": port}
+        if action == "allow_many":
+            ports = cmd.get("ports", [])
+            bad = [p for p in ports if not 1 <= p <= 65535]
+            if bad:
+                return self._error(f"invalid ports: {bad}")
+            self.allowed_ports.update(ports)
+            await self._reconcile()
+            return {"ok": True, "allowed_ports": sorted(ports)}
         if action == "deny":
             port = int(cmd.get("port", 0))
             self.allowed_ports.discard(port)
             await self._reconcile()
             return {"ok": True, "denied_port": port}
+        if action == "deny_many":
+            ports = cmd.get("ports", [])
+            self.allowed_ports.difference_update(ports)
+            await self._reconcile()
+            return {"ok": True, "denied_ports": sorted(ports)}
         if action == "reset":
             await self.stop()
             return {"ok": True, "message": "daemon stopped and rules flushed"}
