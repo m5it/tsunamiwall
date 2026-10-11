@@ -7,6 +7,36 @@
 
 ## Installation
 
+### Recommended: local virtualenv
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/pip install -e .
+```
+
+Because `sudo` resets your PATH and hides the active virtualenv, always run with the absolute venv Python:
+
+```bash
+sudo .venv/bin/python main.py start
+sudo .venv/bin/python main.py status
+```
+
+### Convenience wrapper
+
+Two wrapper scripts are provided so you don't have to remember the full venv path:
+
+```bash
+./run.sh start
+./run.sh -c /etc/tsunamiwall/config.yaml start
+./run.sh status
+./run.sh reset
+```
+
+`run-dev.sh` additionally creates the venv and installs deps if they are missing.
+
+### System-wide install
+
 ```bash
 pip install -e .
 ```
@@ -20,37 +50,43 @@ This installs two commands: `tsunamiwall` and `tsunamiwall-reset`.
 
 ### Start the daemon
 ```bash
-sudo tsunamiwall start
+sudo .venv/bin/python main.py start
+# or:
+./run.sh start
 ```
 Runs in the foreground. Use systemd, supervisord, or `nohup`/`screen` to run it as a service.
 
 ### Show current state
 ```bash
-sudo tsunamiwall status
+sudo .venv/bin/python main.py status
+# or:
+./run.sh status
 ```
 
 ### Explicitly allow a port
 If you want to keep a port reachable even when nothing is currently listening, or just prefer manual control:
 ```bash
-sudo tsunamiwall allow 8080
+sudo .venv/bin/python main.py allow 8080
+# or from a file:
+sudo .venv/bin/python main.py allow --file config/allowed-ports-example.txt
 ```
 
 ### Remove an allowed port
 ```bash
-sudo tsunamiwall deny 8080
+sudo .venv/bin/python main.py deny 8080
 ```
 
 ### View honeypot hits
 ```bash
-sudo tsunamiwall logs
+sudo .venv/bin/python main.py logs
 ```
 
 ### Emergency reset
 If anything goes wrong, this stops the daemon and flushes every TsunamiWall rule:
 ```bash
-sudo tsunamiwall reset
+sudo .venv/bin/python main.py reset
 # or, if the daemon is dead/stuck:
-sudo tsunamiwall-reset
+sudo .venv/bin/python tsunamiwall/emergency.py
 ```
 
 ## How it works
@@ -75,7 +111,9 @@ If none exist, built-in defaults are used. See `config/example-config.yaml` for 
 sudo mkdir -p /etc/tsunamiwall
 sudo cp config/example-config.yaml /etc/tsunamiwall/config.yaml
 sudoedit /etc/tsunamiwall/config.yaml
-sudo tsunamiwall start
+sudo .venv/bin/python main.py -c /etc/tsunamiwall/config.yaml start
+# or:
+./run.sh -c /etc/tsunamiwall/config.yaml start
 ```
 
 Key tunables:
@@ -86,9 +124,9 @@ Key tunables:
 ## Using a custom config with the CLI
 
 ```bash
-sudo tsunamiwall -c /path/to/config.yaml start
-sudo tsunamiwall -c /path/to/config.yaml status
-sudo tsunamiwall -c /path/to/config.yaml logs
+sudo .venv/bin/python main.py -c /path/to/config.yaml start
+sudo .venv/bin/python main.py -c /path/to/config.yaml status
+sudo .venv/bin/python main.py -c /path/to/config.yaml logs
 ```
 
 ## Analyzing drop logs
