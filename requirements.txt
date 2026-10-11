@@ -1,0 +1,2 @@
+# Runtime dependencies for TsunamiWall.
+pyyaml>=6.0

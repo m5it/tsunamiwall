@@ -90,3 +90,18 @@ sudo tsunamiwall -c /path/to/config.yaml start
 sudo tsunamiwall -c /path/to/config.yaml status
 sudo tsunamiwall -c /path/to/config.yaml logs
 ```
+
+## Analyzing drop logs
+
+TsunamiWall logs every dropped packet to the kernel log with the prefix `TSUNAMIWALL-DROP:`. A helper script is provided to extract attacker ports/IPs.
+
+```bash
+# Unique attacker source ports
+sudo dmesg | ./scripts/extract-attack-ports.sh
+
+# Unique attacker source IPs
+sudo dmesg | ./scripts/extract-attack-ports.sh --src-ip
+
+# Unique destination ports the attackers probed
+sudo dmesg | ./scripts/extract-attack-ports.sh --dst-port
+```
