@@ -38,7 +38,14 @@ def _send(args: argparse.Namespace, cmd: dict) -> dict:
         except json.JSONDecodeError:
             return {"ok": False, "error": "bad response from daemon"}
 
-    return asyncio.run(_talk())
+    try:
+        return asyncio.run(_talk())
+    except (ConnectionRefusedError, FileNotFoundError) as exc:
+        raise DaemonUnreachable(f"Cannot reach daemon at {cfg.socket_path}: {exc}") from exc
+
+
+class DaemonUnreachable(Exception):
+    """Raised when the CLI cannot connect to the daemon socket."""
 
 
 def _print_response(resp: dict) -> int:
@@ -79,7 +86,20 @@ def cmd_deny(args: argparse.Namespace) -> int:
 
 
 def cmd_reset(args: argparse.Namespace) -> int:
-    return _print_response(_send(args, {"action": "reset"}))
+    cfg = _config(args)
+    # If the daemon socket is missing or dead, perform a direct emergency reset
+    # instead of failing with a connection error.
+    socket_alive = os.path.exists(cfg.socket_path)
+    if socket_alive:
+        try:
+            return _print_response(_send(args, {"action": "reset"}))
+        except (ConnectionRefusedError, FileNotFoundError):
+            print("Daemon socket exists but no daemon is listening; performing direct reset.", file=sys.stderr)
+
+    from .emergency import emergency_reset
+
+    emergency_reset()
+    return 0
 
 
 def cmd_logs(args: argparse.Namespace) -> int:

@@ -24,6 +24,14 @@ trusted_ips: []
 #   - "198.51.100.0/24"
 #   - "2001:db8::/32"
 
+# Payload capture from honeypot connections.
+# When enabled, TsunamiWall reads up to payload_max_bytes from each probe and
+# writes it to /var/log/tsunamiwall/bycountry/{CC}/{IP}/{timestamp}_{dst_port}.bin
+# plus a metadata JSONL file called sessions.logl.
+payload_max_bytes: 4096
+payload_read_timeout: 2.0
+payload_log_dir: "/var/log/tsunamiwall/bycountry"
+
 # Directories and file names.
 log_dir: "/var/log/tsunamiwall"
 run_dir: "/run/tsunamiwall"

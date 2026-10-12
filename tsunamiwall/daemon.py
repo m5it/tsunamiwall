@@ -13,7 +13,12 @@ from typing import Any
 
 from .config import Config, default_config, safe_ports
 from .discovery import discover_ports
-from .honeypot import HitEvent, HoneypotServer, jsonl_formatter
+from .honeypot import (
+    HitEvent,
+    HoneypotServer,
+    default_payload_writer,
+    jsonl_formatter,
+)
 from .iptables import build_rules, reset
 
 logger = logging.getLogger("tsunamiwall.daemon")
@@ -29,6 +34,7 @@ class Daemon:
         self._stop_event = asyncio.Event()
         self._server: asyncio.Server | None = None
         self._hit_log_fh = self._open_hit_log()
+        self._payload_callback = default_payload_writer(self.cfg)
 
     def _open_hit_log(self):
         os.makedirs(self.cfg.log_dir, exist_ok=True, mode=0o750)
@@ -113,7 +119,7 @@ class Daemon:
         # Start honeypots that are not running.
         to_start = available - set(self.honeypots.keys())
         for port in sorted(to_start)[: self.cfg.max_honeypots - len(self.honeypots)]:
-            hp = HoneypotServer(port, self._log_hit)
+            hp = HoneypotServer(port, self._log_hit, cfg=self.cfg, payload_callback=self._payload_callback)
             try:
                 await hp.start()
             except OSError as exc:

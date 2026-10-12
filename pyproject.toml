@@ -12,6 +12,10 @@ requires-python = ">=3.10"
 dependencies = [
     "pyyaml>=6.0",
 ]
+
+[project.optional-dependencies]
+geoip = ["iptocc>=1.0"]
+dev = ["pytest", "pytest-asyncio", "iptocc>=1.0"]
 authors = [
     {name = "TsunamiWall Contributors"},
 ]
@@ -26,9 +30,6 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: System :: Networking :: Firewalls",
 ]
-
-[project.optional-dependencies]
-dev = ["pytest", "pytest-asyncio"]
 
 [project.scripts]
 tsunamiwall = "tsunamiwall.cli:main"

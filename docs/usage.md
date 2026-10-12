@@ -87,6 +87,31 @@ Full-screen real-time table. Press **q** to quit.
 sudo .venv/bin/python main.py watch
 ```
 
+### Capture and inspect attacker payloads
+
+TsunamiWall can read the data scanners send and store it by country/IP.
+
+1. Install the optional offline geolocation dependency:
+   ```bash
+   .venv/bin/pip install iptocc
+   # or
+   .venv/bin/pip install -r requirements-geoip.txt
+   ```
+
+2. Enable payload capture in your config:
+   ```yaml
+   payload_max_bytes: 4096
+   payload_read_timeout: 2.0
+   payload_log_dir: "/var/log/tsunamiwall/bycountry"
+   ```
+
+3. After a probe, inspect the files:
+   ```bash
+   ls /var/log/tsunamiwall/bycountry/
+   ls /var/log/tsunamiwall/bycountry/US/220.249.82.190/
+   xxd /var/log/tsunamiwall/bycountry/US/220.249.82.190/*.bin
+   ```
+
 ### Emergency reset
 If anything goes wrong, this stops the daemon and flushes every TsunamiWall rule:
 ```bash

@@ -1,29 +1,102 @@
-# TsunamiWall
+:tsunami: # TsunamiWall
 
 Linux server firewall with built-in per-port honeypot listeners.
 
 ## What it does
-- Blocks all unsolicited inbound traffic by default.
-- Allows traffic only to real listening services you approve.
-- Opens stealth honeypot listeners on unused high ports (`10000-65535`) to log attacker probes.
-- Provides a simple CLI for control and an emergency reset for safety.
+- **Blocks** all unsolicited inbound traffic by default.
+- **Allows** traffic only to real listening services and explicitly allowed ports.
+- **Drops + logs** every unwanted probe.
+- **Opens stealth honeypot listeners** on unused high ports (`10000-65535`) to catch and record attacker behavior.
+- **Captures attacker payloads** and stores them per country / per IP.
+- Provides a simple CLI, a live TUI, config-file support, and an emergency reset for safety.
 
 ## Status
-Early development — v1 focuses on IPv4, TCP/UDP listening socket discovery, iptables backend, and manual CLI.
+Early development — v1 focuses on IPv4, TCP/UDP listening socket discovery, `iptables` backend, manual CLI, and honeypot threat visibility.
 
-## Quick commands
+## Quick start
+
 ```bash
-tsunamiwall start      # start the daemon + apply rules
-tsunamiwall status     # show active services and honeypots
-tsunamiwall allow 22   # explicitly allow a real service port
-tsunamiwall deny 8080  # remove an allowed port
-tsunamiwall logs       # show recent honeypot hits
-tsunamiwall reset      # emergency: remove all TsunamiWall rules
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/pip install -e .
+
+# Optional: offline country lookups for captured payloads
+.venv/bin/pip install iptocc
+
+# Create a config
+sudo mkdir -p /etc/tsunamiwall
+sudo cp config/example-config.yaml /etc/tsunamiwall/config.yaml
+sudoedit /etc/tsunamiwall/config.yaml
+
+# Start the daemon
+sudo .venv/bin/python main.py -c /etc/tsunamiwall/config.yaml start
+
+# In another terminal
+.venv/bin/python main.py status
+.venv/bin/python main.py watch      # live TUI of honeypot hits
+.venv/bin/python main.py logs
 ```
 
-## Architecture
-- **Daemon**: asyncio-based, watches listening sockets, manages honeypot listeners.
-- **Firewall backend**: `iptables` via a dedicated `TSUNAMIWALL` chain.
-- **CLI**: Unix-socket client talking to the daemon.
+Or use the convenience wrapper so you don't have to type the full venv path:
 
-See `DESIGN.md` and `AGENTS.md` for details.
+```bash
+./run.sh -c /etc/tsunamiwall/config.yaml start
+./run.sh status
+./run.sh watch
+./run.sh reset
+```
+
+## CLI commands
+
+| Command | Purpose |
+|---|---|
+| `start` | Run the daemon in the foreground (needs root) |
+| `status` | Show allowed ports and active honeypots |
+| `watch` | Live full-screen TUI of honeypot hits |
+| `logs` | Show recent honeypot hits |
+| `allow <port>` / `allow --file <path>` | Allow one or many ports |
+| `deny <port>` / `deny --file <path>` | Remove one or many allowed ports |
+| `reset` | Emergency stop + flush all TsunamiWall iptables rules |
+
+## Configuration file
+
+TsunamiWall reads YAML configuration from (in order):
+
+1. `--config PATH`
+2. `TSUNAMIWALL_CONFIG` environment variable
+3. `/etc/tsunamiwall/config.yaml`
+4. `~/.config/tsunamiwall/config.yaml`
+
+Key options include `trusted_ips`, `honeypot_start`/`honeypot_end`, `max_honeypots`, and payload capture settings.
+
+## Architecture
+
+```
++----------+       Unix socket       +----------------------+
+|  CLI/TUI |  ---------------------->|  tsunamiwall daemon  |
++----------+                         |  - discovery loop    |
+                                     |  - honeypot servers  |
+                                     |  - iptables backend  |
+                                     +----------+-----------+
+                                                |
+                                                v
+                                     +----------+-----------+
+                                     |      iptables        |
+                                     |  TSUNAMIWALL chain   |
+                                     +----------------------+
+```
+
+- **Daemon**: `asyncio`-based, watches listening sockets, manages honeypot listeners.
+- **Firewall backend**: `iptables` via a dedicated `TSUNAMIWALL` chain.
+- **CLI/TUI**: Unix-socket client talking to the daemon.
+- **Payload logging**: captured data is written to `/var/log/tsunamiwall/bycountry/{CC}/{IP}/`.
+
+## Documentation
+- `docs/usage.md` — installation, commands, and tuning.
+- `docs/development.md` — project structure and testing.
+- `DESIGN.md` — architecture and data flow.
+- `AGENTS.md` — agent context and conventions.
+- `CHANGELOG.md` — release history.
+
+## License
+MIT

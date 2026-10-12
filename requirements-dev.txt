@@ -3,3 +3,5 @@
 
 pytest>=8.0
 pytest-asyncio>=0.23
+# Optional offline country-code lookup for honeypot payload grouping.
+iptocc>=1.0

@@ -31,6 +31,12 @@ class Config:
     # Trusted source IPs or CIDR blocks that are always allowed inbound before
     # any port filtering. Use this to prevent locking yourself out.
     trusted_ips: list[str] = field(default_factory=list)
+    # Maximum payload bytes to read from each honeypot connection.
+    payload_max_bytes: int = 4096
+    # Seconds to wait for the attacker to send data before closing.
+    payload_read_timeout: float = 2.0
+    # Directory under which per-country per-IP payload logs are stored.
+    payload_log_dir: str = "/var/log/tsunamiwall/bycountry"
 
     def __post_init__(self):
         if not 1 <= self.honeypot_start <= 65535:
@@ -43,6 +49,12 @@ class Config:
             raise ValueError("log_dir must be an absolute path")
         if not os.path.isabs(self.run_dir):
             raise ValueError("run_dir must be an absolute path")
+        if not os.path.isabs(self.payload_log_dir):
+            raise ValueError("payload_log_dir must be an absolute path")
+        if self.payload_max_bytes <= 0:
+            raise ValueError("payload_max_bytes must be positive")
+        if self.payload_read_timeout <= 0:
+            raise ValueError("payload_read_timeout must be positive")
         for ip in self.trusted_ips:
             try:
                 ipaddress.ip_network(ip, strict=False)
