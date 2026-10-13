@@ -51,6 +51,7 @@ class Daemon:
 
     async def start(self) -> None:
         os.makedirs(self.cfg.run_dir, exist_ok=True, mode=0o750)
+        self._ensure_single_instance()
         self._write_pid()
 
         # Initial discovery and firewall setup.
@@ -68,6 +69,27 @@ class Daemon:
 
         logger.info("TsunamiWall daemon started")
         await self._stop_event.wait()
+
+    def _ensure_single_instance(self) -> None:
+        """Exit if another daemon is already running; otherwise clean up stale pid file."""
+        pid_path = Path(self.cfg.pid_path)
+        if pid_path.exists():
+            try:
+                old_pid = int(pid_path.read_text(encoding="utf-8").strip())
+            except Exception:
+                old_pid = None
+            if old_pid is not None and old_pid != os.getpid():
+                try:
+                    os.kill(old_pid, 0)
+                    logger.error("Another TsunamiWall daemon is already running (PID %d). Exiting.", old_pid)
+                    sys.exit(1)
+                except (ProcessLookupError, PermissionError):
+                    pass
+            # Stale pid file; remove it so we can write our own.
+            try:
+                pid_path.unlink()
+            except FileNotFoundError:
+                pass
 
     def _write_pid(self) -> None:
         Path(self.cfg.pid_path).write_text(str(os.getpid()), encoding="utf-8")
@@ -195,7 +217,7 @@ class Daemon:
             trusted_ips=self.cfg.trusted_ips,
             allowed_per_ip=self.allowed_per_ip,
         )
-        logger.debug("Reconciled: allowed=%s honeypots=%d", sorted(managed_allowed), len(honeypot_ports))
+        logger.info("Reconciled: allowed=%s honeypots=%d", sorted(managed_allowed), len(honeypot_ports))
         self._save_state()
 
     async def _stop_all_honeypots(self) -> None:
