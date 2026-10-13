@@ -120,6 +120,24 @@ TsunamiWall can read the data scanners send and store it by country/IP.
    xxd /var/log/tsunamiwall/bycountry/US/220.249.82.190/*.bin
    ```
 
+### Which ports are being blocked right now?
+
+TsunamiWall drops everything by default, so the "blocked" list is simply:
+**all ports that are not shown as allowed or honeypot in `status`.**
+
+To see the active allow/honeypot rules:
+```bash
+./run.sh status
+sudo iptables -L TSUNAMIWALL -n
+```
+
+To see which destination ports are being actively dropped/probed recently:
+```bash
+sudo scripts/tsunamiwall-logs dropped
+sudo scripts/tsunamiwall-logs dropped 30   # top 30
+sudo dmesg | scripts/extract-attack-ports.sh --dst-port
+```
+
 ### Inspecting logs with `scripts/tsunamiwall-logs`
 
 The `scripts/tsunamiwall-logs` helper reads the JSONL hit log and the per-country payload tree without needing the daemon socket:
@@ -133,6 +151,7 @@ scripts/tsunamiwall-logs by-country US
 scripts/tsunamiwall-logs by-dst 10005
 scripts/tsunamiwall-logs payloads 1.2.3.4    # show payloads for an IP
 scripts/tsunamiwall-logs stats               # top IPs, countries and ports
+scripts/tsunamiwall-logs dropped             # top dropped destination ports
 ```
 
 ### Emergency reset

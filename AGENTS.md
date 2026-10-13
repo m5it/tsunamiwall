@@ -56,7 +56,7 @@ Active development. Core daemon runs on real servers, manages iptables, opens ho
 - `tsunamiwall/cli.py` — CLI client talking to the daemon via Unix socket; supports global and per-source-IP allow/deny.
 - `tsunamiwall/tui.py` — live `curses` honeypot-hit monitor.
 - `tsunamiwall/emergency.py` — standalone reset tool.
-- `scripts/tsunamiwall-logs` — friendly log/payload viewer (hits, stats, tail, by-IP, by-country, by-port, payloads).
+- `scripts/tsunamiwall-logs` — friendly log/payload viewer (hits, stats, tail, by-IP, by-country, by-port, payloads, dropped destination ports).
 
 ## Important behavioral notes
 - `sudo` does **not** see the user's `.venv`. Always run with the absolute venv path or use `run.sh` / `run-dev.sh`.

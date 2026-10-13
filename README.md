@@ -108,6 +108,7 @@ scripts/tsunamiwall-logs by-country US
 scripts/tsunamiwall-logs by-dst 10005
 scripts/tsunamiwall-logs payloads 1.2.3.4     # show captured payloads for an IP
 scripts/tsunamiwall-logs stats                # top IPs, countries and ports
+scripts/tsunamiwall-logs dropped              # top dropped destination ports
 ```
 
 ## Documentation

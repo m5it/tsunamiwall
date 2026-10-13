@@ -19,7 +19,7 @@ import sys
 import time
 from collections import Counter
 from pathlib import Path
-from typing import Iterator
+from typing import Iterable, Iterator
 
 # Add project root to the path so we can import tsunamiwall.config.
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -66,6 +66,12 @@ def _parser() -> argparse.ArgumentParser:
     payloads.add_argument("--last", type=int, metavar="N", help="show only the N most recent payloads")
 
     sub.add_parser("stats", help="summary statistics: top IPs, countries and probed ports")
+
+    dropped_p = sub.add_parser(
+        "dropped",
+        help="show top destination ports recently dropped by TsunamiWall (from dmesg/syslog)",
+    )
+    dropped_p.add_argument("count", type=int, nargs="?", default=20, help="number of ports to show")
 
     return parser
 
@@ -268,6 +274,77 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def _drop_log_lines() -> Iterable[str]:
+    """Yield raw lines from the best available kernel log source."""
+    permission_denied = False
+
+    # Prefer dmesg because it includes iptables LOG entries even when
+    # nothing is written to disk.
+    try:
+        result = subprocess.run(
+            ["dmesg"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if result.returncode == 0:
+            yield from result.stdout.splitlines()
+            return
+        if "not permitted" in result.stderr.lower() or "operation not permitted" in result.stderr.lower() or "permission" in result.stderr.lower():
+            permission_denied = True
+    except (FileNotFoundError, PermissionError):
+        permission_denied = True
+
+    # Fallback to common on-disk log files.
+    for candidate in ("/var/log/kern.log", "/var/log/syslog", "/var/log/messages"):
+        try:
+            with open(candidate, "r", encoding="utf-8", errors="replace") as fh:
+                yield from fh
+            return
+        except PermissionError:
+            permission_denied = True
+        except FileNotFoundError:
+            continue
+
+    if permission_denied:
+        raise PermissionError("Cannot read kernel logs: permission denied (try sudo).")
+
+
+def _dropped_ports() -> Counter[int]:
+    """Count TsunamiWall-dropped destination ports from available logs."""
+    counter: Counter[int] = Counter()
+    for line in _drop_log_lines():
+        if "TSUNAMIWALL-DROP:" not in line:
+            continue
+        # Extract DPT=<port> from iptables LOG messages.
+        for token in line.split():
+            if token.startswith("DPT="):
+                try:
+                    counter[int(token.split("=", 1)[1])] += 1
+                except ValueError:
+                    pass
+    return counter
+
+
+def cmd_dropped(args: argparse.Namespace) -> int:
+    try:
+        ports = _dropped_ports()
+    except PermissionError as exc:
+        print(f"{exc}", file=sys.stderr)
+        return 1
+    if not ports:
+        print("No recent TsunamiWall drops found in dmesg/syslog.")
+        print("(Drops are logged by iptables as TSUNAMIWALL-DROP: ... DPT=<port>)")
+        return 0
+
+    print(f"{'DST PORT':>10} {'DROPS':>8}")
+    print("-" * 20)
+    for port, count in ports.most_common(args.count):
+        print(f"{port:>10} {count:>8}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
@@ -280,6 +357,7 @@ def main(argv: list[str] | None = None) -> int:
         "by-dst": cmd_by_dst,
         "payloads": cmd_payloads,
         "stats": cmd_stats,
+        "dropped": cmd_dropped,
     }
     try:
         return dispatch[args.command](args)

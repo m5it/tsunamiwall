@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from scripts.tsunamiwall_logs import _iter_hits, _payload_files
+from scripts.tsunamiwall_logs import _dropped_ports, _iter_hits, _payload_files
 
 
 def make_sample_log(tmp_path: Path) -> Path:
@@ -62,3 +62,18 @@ def test_payload_files_finds_by_country(tmp_path):
     assert len(_payload_files(log_dir, country_filter="CN")) == 0
     assert len(_payload_files(log_dir, ip_filter="1.2.3.4")) == 1
     assert len(_payload_files(log_dir, ip_filter="9.9.9.9")) == 0
+
+
+def test_dropped_ports_parses_dpt(monkeypatch):
+    sample_lines = [
+        "TSUNAMIWALL-DROP: IN=eth0 SRC=1.2.3.4 DST=5.6.7.8 DPT=12345",
+        "TSUNAMIWALL-DROP: IN=eth0 SRC=1.2.3.4 DST=5.6.7.8 DPT=12345",
+        "TSUNAMIWALL-DROP: IN=eth0 SRC=1.2.3.4 DST=5.6.7.8 DPT=80",
+        "some other log line DPT=9999",
+    ]
+    monkeypatch.setattr("scripts.tsunamiwall_logs._drop_log_lines", lambda: iter(sample_lines))
+
+    counts = _dropped_ports()
+    assert counts[12345] == 2
+    assert counts[80] == 1
+    assert 9999 not in counts
