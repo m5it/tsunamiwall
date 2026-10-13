@@ -12,7 +12,9 @@ All notable changes to TsunamiWall are documented in this file.
 - **Config file** — YAML config loaded from `--config`, `TSUNAMIWALL_CONFIG`, `/etc/tsunamiwall/config.yaml`, or `~/.config/tsunamiwall/config.yaml`.
 - **Trusted IPs** — `trusted_ips` list allows selected source IPs/CIDRs to bypass all filtering.
 - **Per-IP allow/deny** — `allow <port> --ip <IP/CIDR>` and `deny <port> --ip <IP/CIDR>` restrict ports to a single source address or network.
-- **Runtime state persistence** — `allowed_ports` and `allowed_per_ip` are saved to `/run/tsunamiwall/daemon-state.json` and restored on daemon startup.
+- **Runtime state persistence** — `allowed_ports`, `allowed_per_ip`, and `blocked_ports` are saved to `/run/tsunamiwall/daemon-state.json` and restored on daemon startup.
+- **Auto-block listeners mode** — `auto_block_listeners: true` in config makes TsunamiWall default-deny for all listening sockets; only explicitly allowed ports are opened.
+- **`block`/`unblock` CLI** — explicitly block a port (drop traffic even if a service listens) or unblock it.
 - **Port files** — `allow --file` and `deny --file` accept a text file with one port per line.
 - **Emergency reset** — `reset` command falls back to a direct iptables flush if the daemon is not reachable.
 - **Live TUI** — `watch` subcommand opens a `curses` full-screen table of honeypot hits in real time.

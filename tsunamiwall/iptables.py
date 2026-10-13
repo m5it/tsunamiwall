@@ -77,6 +77,7 @@ def build_rules(
     honeypot_ports: Iterable[int],
     trusted_ips: Iterable[str] | None = None,
     allowed_per_ip: dict[str, Iterable[int]] | None = None,
+    blocked_ports: Iterable[int] | None = None,
 ) -> None:
     """Rebuild the TsunamiWall chain with the current policy.
 
@@ -87,10 +88,12 @@ def build_rules(
       4. Allow per-source-IP/CIDR ports.
       5. Allow explicit real-service ports globally.
       6. Allow honeypot ports.
-      7. Log and drop everything else.
+      7. Explicitly blocked ports (TCP+UDP).
+      8. Log and drop everything else.
     """
     allowed = sorted(set(allowed_ports))
     honeypots = sorted(set(honeypot_ports))
+    blocked = sorted(set(blocked_ports or ()))
     trusted = sorted(set(trusted_ips or ()))
     per_ip: dict[str, set[int]] = {
         ip: set(ports)
@@ -120,7 +123,39 @@ def build_rules(
     # 6. Honeypot ports (TCP only in v1)
     for port in honeypots:
         run_iptables("-A", chain, "-p", "tcp", "--dport", str(port), "-j", "ACCEPT")
-    # 7. Default drop with logging
+    # 7. Explicitly blocked ports (TCP+UDP) — logged and dropped even if a service listens.
+    for port in blocked:
+        run_iptables(
+            "-A",
+            chain,
+            "-p",
+            "tcp",
+            "--dport",
+            str(port),
+            "-j",
+            "LOG",
+            "--log-prefix",
+            "TSUNAMIWALL-BLOCK: ",
+            "--log-level",
+            "4",
+        )
+        run_iptables("-A", chain, "-p", "tcp", "--dport", str(port), "-j", "DROP")
+        run_iptables(
+            "-A",
+            chain,
+            "-p",
+            "udp",
+            "--dport",
+            str(port),
+            "-j",
+            "LOG",
+            "--log-prefix",
+            "TSUNAMIWALL-BLOCK: ",
+            "--log-level",
+            "4",
+        )
+        run_iptables("-A", chain, "-p", "udp", "--dport", str(port), "-j", "DROP")
+    # 8. Default drop with logging
     run_iptables("-A", chain, "-j", "LOG", "--log-prefix", "TSUNAMIWALL-DROP: ", "--log-level", "4")
     run_iptables("-A", chain, "-j", "DROP")
 

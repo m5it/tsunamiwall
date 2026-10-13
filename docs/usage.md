@@ -71,10 +71,23 @@ sudo .venv/bin/python main.py allow 8080
 sudo .venv/bin/python main.py allow --file config/allowed-ports-example.txt
 ```
 
-### Remove an allowed port
+### Remove an allowed/blocked port
 ```bash
 sudo .venv/bin/python main.py deny 8080
 ```
+
+### Block a port even if a service is listening
+```bash
+sudo .venv/bin/python main.py block 1337
+sudo .venv/bin/python main.py unblock 1337
+```
+
+### Strict default-deny mode
+Add this to your config to stop TsunamiWall from automatically allowing every listening socket:
+```yaml
+auto_block_listeners: true
+```
+In this mode only ports you explicitly `allow` are opened. Real services like SSH must be whitelisted manually, so make sure your management IP is in `trusted_ips` first.
 
 ### Allow a port only for a specific IP or CIDR
 ```bash

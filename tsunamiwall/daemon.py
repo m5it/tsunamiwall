@@ -33,6 +33,7 @@ class Daemon:
         self.honeypots: dict[int, HoneypotServer] = {}
         self.allowed_ports: set[int] = set()
         self.allowed_per_ip: dict[str, set[int]] = {}
+        self.blocked_ports: set[int] = set()
         self._stop_event = asyncio.Event()
         self._server: asyncio.Server | None = None
         self._hit_log_fh = self._open_hit_log()
@@ -114,10 +115,11 @@ class Daemon:
         return {
             "allowed_ports": sorted(self.allowed_ports),
             "allowed_per_ip": {ip: sorted(ports) for ip, ports in sorted(self.allowed_per_ip.items())},
+            "blocked_ports": sorted(self.blocked_ports),
         }
 
     def _save_state(self) -> None:
-        """Persist runtime allow/deny state to disk."""
+        """Persist runtime allow/block/deny state to disk."""
         try:
             os.makedirs(self.cfg.run_dir, exist_ok=True, mode=0o750)
             Path(self.cfg.state_path).write_text(
@@ -128,7 +130,7 @@ class Daemon:
             logger.exception("Failed to save daemon state to %s", self.cfg.state_path)
 
     def _load_state(self) -> None:
-        """Load runtime allow/deny state from disk if present."""
+        """Load runtime allow/block/deny state from disk if present."""
         path = Path(self.cfg.state_path)
         if not path.exists():
             return
@@ -139,6 +141,7 @@ class Daemon:
                 ip: set(int(p) for p in ports)
                 for ip, ports in data.get("allowed_per_ip", {}).items()
             }
+            self.blocked_ports = set(int(p) for p in data.get("blocked_ports", []))
             logger.info("Restored daemon state from %s", path)
         except Exception:
             logger.exception("Failed to load daemon state from %s", path)
@@ -186,8 +189,14 @@ class Daemon:
     async def _reconcile(self) -> None:
         """Re-scan sockets, update allowed set and honeypots, rewrite iptables."""
         real_ports = discover_ports(include_tcp=True, include_udp=True)
-        # Also honor any user-allowed ports that may not currently be listening.
-        managed_allowed = self.allowed_ports | real_ports
+
+        if self.cfg.auto_block_listeners:
+            # Strict default-deny: only ports the user explicitly allows are opened.
+            # Real services are not automatically allowed; they must be added via `allow`.
+            managed_allowed = self.allowed_ports | (real_ports & self.allowed_ports)
+        else:
+            # Normal allow-list behavior: any listening socket is treated as a real service.
+            managed_allowed = self.allowed_ports | real_ports
 
         # Compute available honeypot ports.
         available = safe_ports(managed_allowed, self.cfg)
@@ -216,6 +225,7 @@ class Daemon:
             honeypot_ports,
             trusted_ips=self.cfg.trusted_ips,
             allowed_per_ip=self.allowed_per_ip,
+            blocked_ports=self.blocked_ports,
         )
         logger.info("Reconciled: allowed=%s honeypots=%d", sorted(managed_allowed), len(honeypot_ports))
         self._save_state()
@@ -272,6 +282,7 @@ class Daemon:
                 "allowed_per_ip": {
                     ip: sorted(ports) for ip, ports in sorted(self.allowed_per_ip.items())
                 },
+                "blocked_ports": sorted(self.blocked_ports),
                 "honeypots": sorted(self.honeypots.keys()),
                 "honeypot_count": len(self.honeypots),
             }
@@ -317,8 +328,25 @@ class Daemon:
                 remaining = sorted(self.allowed_per_ip.get(ip, []))
                 return {"ok": True, "denied_per_ip": {ip: sorted(ports)}, "remaining_per_ip": {ip: remaining}}
             self.allowed_ports.difference_update(ports)
+            # If a port is denied, it should no longer be blocked either.
+            self.blocked_ports.difference_update(ports)
             await self._reconcile()
             return {"ok": True, "denied_ports": sorted(ports)}
+        if action == "block_many":
+            ports = cmd.get("ports", [])
+            bad = [p for p in ports if not 1 <= p <= 65535]
+            if bad:
+                return self._error(f"invalid ports: {bad}")
+            self.blocked_ports.update(ports)
+            # A blocked port cannot be simultaneously allowed globally.
+            self.allowed_ports.difference_update(ports)
+            await self._reconcile()
+            return {"ok": True, "blocked_ports": sorted(ports)}
+        if action == "unblock_many":
+            ports = cmd.get("ports", [])
+            self.blocked_ports.difference_update(ports)
+            await self._reconcile()
+            return {"ok": True, "unblocked_ports": sorted(ports)}
         if action == "reset":
             await self.stop()
             return {"ok": True, "message": "daemon stopped and rules flushed"}

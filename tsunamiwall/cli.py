@@ -99,6 +99,22 @@ def cmd_deny(args: argparse.Namespace) -> int:
     return _print_response(_send(args, {"action": "deny_many", "ports": ports, "ip": ip}))
 
 
+def cmd_block(args: argparse.Namespace) -> int:
+    if args.file:
+        ports = _read_ports_file(args.file)
+    else:
+        ports = [args.port]
+    return _print_response(_send(args, {"action": "block_many", "ports": ports}))
+
+
+def cmd_unblock(args: argparse.Namespace) -> int:
+    if args.file:
+        ports = _read_ports_file(args.file)
+    else:
+        ports = [args.port]
+    return _print_response(_send(args, {"action": "unblock_many", "ports": ports}))
+
+
 def cmd_reset(args: argparse.Namespace) -> int:
     cfg = _config(args)
     # If the daemon socket is missing or dead, perform a direct emergency reset
@@ -187,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     _add_config_arg(allow_p)
 
-    deny_p = sub.add_parser("deny", help="remove one or more allowed ports")
+    deny_p = sub.add_parser("deny", help="remove one or more allowed/blocked ports")
     deny_p.add_argument("port", type=int, nargs="?", help="single port to deny")
     deny_p.add_argument("--file", "-f", metavar="PATH", help="file with one port per line")
     deny_p.add_argument(
@@ -195,8 +211,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     _add_config_arg(deny_p)
 
+    block_p = sub.add_parser("block", help="explicitly block one or more ports (drops traffic even if a service listens)")
+    block_p.add_argument("port", type=int, nargs="?", help="single port to block")
+    block_p.add_argument("--file", "-f", metavar="PATH", help="file with one port per line")
+    _add_config_arg(block_p)
+
+    unblock_p = sub.add_parser("unblock", help="remove one or more blocked ports")
+    unblock_p.add_argument("port", type=int, nargs="?", help="single port to unblock")
+    unblock_p.add_argument("--file", "-f", metavar="PATH", help="file with one port per line")
+    _add_config_arg(unblock_p)
+
     args = parser.parse_args(argv)
-    for cmd in ("allow", "deny"):
+    for cmd in ("allow", "deny", "block", "unblock"):
         if args.command == cmd and args.port is None and not args.file:
             parser.error(f"{cmd} requires either a PORT argument or --file")
     if args.command == "start":
@@ -213,6 +239,10 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_allow(args)
     if args.command == "deny":
         return cmd_deny(args)
+    if args.command == "block":
+        return cmd_block(args)
+    if args.command == "unblock":
+        return cmd_unblock(args)
     return 0
 
 

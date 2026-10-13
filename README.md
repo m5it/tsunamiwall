@@ -58,6 +58,8 @@ Or use the convenience wrapper so you don't have to type the full venv path:
 | `allow <port> --ip <IP/CIDR>` | Allow a port only for a specific source IP or CIDR (persistent) |
 | `deny <port>` / `deny --file <path>` | Remove one or many allowed ports |
 | `deny <port> --ip <IP/CIDR>` | Remove a per-source-IP allowed port |
+| `block <port>` / `block --file <path>` | Block a port (drop traffic even if a service listens) |
+| `unblock <port>` / `unblock --file <path>` | Remove a blocked port |
 | `reset` | Emergency stop + flush all TsunamiWall iptables rules |
 
 ## Configuration file

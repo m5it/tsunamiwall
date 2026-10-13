@@ -31,6 +31,11 @@ class Config:
     # Trusted source IPs or CIDR blocks that are always allowed inbound before
     # any port filtering. Use this to prevent locking yourself out.
     trusted_ips: list[str] = field(default_factory=list)
+    # When true, discovered listening ports are treated as blocked until they are
+    # explicitly allowed. This gives a strict default-deny policy where every real
+    # service must be whitelisted. When false (the default), TsunamiWall behaves as
+    # an allow-list firewall: any listening socket is automatically allowed.
+    auto_block_listeners: bool = False
     # Maximum payload bytes to read from each honeypot connection.
     payload_max_bytes: int = 4096
     # Seconds to wait for the attacker to send data before closing.
