@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 import os
@@ -31,6 +32,7 @@ class Daemon:
         self.cfg = cfg or default_config()
         self.honeypots: dict[int, HoneypotServer] = {}
         self.allowed_ports: set[int] = set()
+        self.allowed_per_ip: dict[str, set[int]] = {}
         self._stop_event = asyncio.Event()
         self._server: asyncio.Server | None = None
         self._hit_log_fh = self._open_hit_log()
@@ -156,6 +158,7 @@ class Daemon:
             managed_allowed,
             honeypot_ports,
             trusted_ips=self.cfg.trusted_ips,
+            allowed_per_ip=self.allowed_per_ip,
         )
         logger.debug("Reconciled: allowed=%s honeypots=%d", sorted(managed_allowed), len(honeypot_ports))
 
@@ -208,6 +211,9 @@ class Daemon:
             return {
                 "ok": True,
                 "allowed_ports": sorted(self.allowed_ports),
+                "allowed_per_ip": {
+                    ip: sorted(ports) for ip, ports in sorted(self.allowed_per_ip.items())
+                },
                 "honeypots": sorted(self.honeypots.keys()),
                 "honeypot_count": len(self.honeypots),
             }
@@ -223,6 +229,15 @@ class Daemon:
             bad = [p for p in ports if not 1 <= p <= 65535]
             if bad:
                 return self._error(f"invalid ports: {bad}")
+            ip = cmd.get("ip")
+            if ip:
+                try:
+                    ipaddress.ip_network(ip, strict=False)
+                except ValueError as exc:
+                    return self._error(f"invalid ip: {exc}")
+                self.allowed_per_ip.setdefault(ip, set()).update(ports)
+                await self._reconcile()
+                return {"ok": True, "allowed_per_ip": {ip: sorted(self.allowed_per_ip[ip])}}
             self.allowed_ports.update(ports)
             await self._reconcile()
             return {"ok": True, "allowed_ports": sorted(ports)}
@@ -233,6 +248,16 @@ class Daemon:
             return {"ok": True, "denied_port": port}
         if action == "deny_many":
             ports = cmd.get("ports", [])
+            ip = cmd.get("ip")
+            if ip:
+                if ip not in self.allowed_per_ip:
+                    return {"ok": True, "denied_per_ip": {ip: []}}
+                self.allowed_per_ip[ip].difference_update(ports)
+                if not self.allowed_per_ip[ip]:
+                    del self.allowed_per_ip[ip]
+                await self._reconcile()
+                remaining = sorted(self.allowed_per_ip.get(ip, []))
+                return {"ok": True, "denied_per_ip": {ip: sorted(ports)}, "remaining_per_ip": {ip: remaining}}
             self.allowed_ports.difference_update(ports)
             await self._reconcile()
             return {"ok": True, "denied_ports": sorted(ports)}

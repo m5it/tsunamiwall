@@ -3,9 +3,10 @@
 This file is the canonical project context for coding agents. If you pick up this project, read this first, then `DESIGN.md` and `docs/development.md`.
 
 ## Project goal
-Build a Linux server firewall with two jobs:
+Build a Linux server firewall with three jobs:
 1. Block all unwanted inbound traffic.
 2. Run stealth honeypot listeners on unused high ports to log what attackers/scanners are probing.
+3. Support per-source-IP port rules for fine-grained access.
 
 ## Current status
 Active development. Core daemon runs on real servers, manages iptables, opens honeypots, and already catches live internet scans. See `CHANGELOG.md` for the latest feature list.
@@ -38,6 +39,7 @@ Active development. Core daemon runs on real servers, manages iptables, opens ho
 |  - allow trusted source IPs      |
 |  - allow loopback                |
 |  - allow established/related     |
+|  - allow per-source-IP ports     |
 |  - allow real service ports      |
 |  - allow honeypot ports          |
 |  - log + drop everything else    |
@@ -51,9 +53,10 @@ Active development. Core daemon runs on real servers, manages iptables, opens ho
 - `tsunamiwall/iptables.py` — safe wrapper around `iptables` with timeouts.
 - `tsunamiwall/honeypot.py` — asyncio honeypot listener per port, payload capture.
 - `tsunamiwall/daemon.py` — main asyncio daemon.
-- `tsunamiwall/cli.py` — CLI client talking to the daemon via Unix socket.
+- `tsunamiwall/cli.py` — CLI client talking to the daemon via Unix socket; supports global and per-source-IP allow/deny.
 - `tsunamiwall/tui.py` — live `curses` honeypot-hit monitor.
 - `tsunamiwall/emergency.py` — standalone reset tool.
+- `scripts/tsunamiwall-logs` — friendly log/payload viewer (hits, stats, tail, by-IP, by-country, by-port, payloads).
 
 ## Important behavioral notes
 - `sudo` does **not** see the user's `.venv`. Always run with the absolute venv path or use `run.sh` / `run-dev.sh`.

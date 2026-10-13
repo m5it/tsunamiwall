@@ -69,12 +69,25 @@ def _read_ports_file(path: str) -> list[int]:
     return ports
 
 
+def _validate_ip(ip: str | None) -> str | None:
+    if ip is None:
+        return None
+    import ipaddress
+
+    try:
+        ipaddress.ip_network(ip, strict=False)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid IP/CIDR: {exc}") from exc
+    return ip
+
+
 def cmd_allow(args: argparse.Namespace) -> int:
     if args.file:
         ports = _read_ports_file(args.file)
     else:
         ports = [args.port]
-    return _print_response(_send(args, {"action": "allow_many", "ports": ports}))
+    ip = _validate_ip(args.ip)
+    return _print_response(_send(args, {"action": "allow_many", "ports": ports, "ip": ip}))
 
 
 def cmd_deny(args: argparse.Namespace) -> int:
@@ -82,7 +95,8 @@ def cmd_deny(args: argparse.Namespace) -> int:
         ports = _read_ports_file(args.file)
     else:
         ports = [args.port]
-    return _print_response(_send(args, {"action": "deny_many", "ports": ports}))
+    ip = _validate_ip(args.ip)
+    return _print_response(_send(args, {"action": "deny_many", "ports": ports, "ip": ip}))
 
 
 def cmd_reset(args: argparse.Namespace) -> int:
@@ -168,11 +182,17 @@ def main(argv: list[str] | None = None) -> int:
     allow_p = sub.add_parser("allow", help="explicitly allow one or more ports")
     allow_p.add_argument("port", type=int, nargs="?", help="single port to allow")
     allow_p.add_argument("--file", "-f", metavar="PATH", help="file with one port per line")
+    allow_p.add_argument(
+        "--ip", metavar="IP/CIDR", help="restrict the allowed port(s) to this source IP or CIDR"
+    )
     _add_config_arg(allow_p)
 
     deny_p = sub.add_parser("deny", help="remove one or more allowed ports")
     deny_p.add_argument("port", type=int, nargs="?", help="single port to deny")
     deny_p.add_argument("--file", "-f", metavar="PATH", help="file with one port per line")
+    deny_p.add_argument(
+        "--ip", metavar="IP/CIDR", help="remove the port(s) only for this source IP or CIDR"
+    )
     _add_config_arg(deny_p)
 
     args = parser.parse_args(argv)

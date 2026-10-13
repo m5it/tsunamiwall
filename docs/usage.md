@@ -76,6 +76,14 @@ sudo .venv/bin/python main.py allow --file config/allowed-ports-example.txt
 sudo .venv/bin/python main.py deny 8080
 ```
 
+### Allow a port only for a specific IP or CIDR
+```bash
+sudo .venv/bin/python main.py allow 8080 --ip 203.0.113.45
+sudo .venv/bin/python main.py allow 8080 --ip 203.0.113.0/24
+```
+
+The rule is inserted before global `allow` rules, so it only opens the port for traffic coming from that source address or network. Use `deny` with the same `--ip` to remove it later.
+
 ### View honeypot hits
 ```bash
 sudo .venv/bin/python main.py logs
@@ -111,6 +119,21 @@ TsunamiWall can read the data scanners send and store it by country/IP.
    ls /var/log/tsunamiwall/bycountry/US/220.249.82.190/
    xxd /var/log/tsunamiwall/bycountry/US/220.249.82.190/*.bin
    ```
+
+### Inspecting logs with `scripts/tsunamiwall-logs`
+
+The `scripts/tsunamiwall-logs` helper reads the JSONL hit log and the per-country payload tree without needing the daemon socket:
+
+```bash
+scripts/tsunamiwall-logs recent             # last 50 hits
+scripts/tsunamiwall-logs recent 20          # last 20 hits
+scripts/tsunamiwall-logs tail               # follow the hit log live
+scripts/tsunamiwall-logs by-ip 1.2.3.4
+scripts/tsunamiwall-logs by-country US
+scripts/tsunamiwall-logs by-dst 10005
+scripts/tsunamiwall-logs payloads 1.2.3.4    # show payloads for an IP
+scripts/tsunamiwall-logs stats               # top IPs, countries and ports
+```
 
 ### Emergency reset
 If anything goes wrong, this stops the daemon and flushes every TsunamiWall rule:

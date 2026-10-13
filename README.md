@@ -55,7 +55,9 @@ Or use the convenience wrapper so you don't have to type the full venv path:
 | `watch` | Live full-screen TUI of honeypot hits |
 | `logs` | Show recent honeypot hits |
 | `allow <port>` / `allow --file <path>` | Allow one or many ports |
+| `allow <port> --ip <IP/CIDR>` | Allow a port only for a specific source IP or CIDR |
 | `deny <port>` / `deny --file <path>` | Remove one or many allowed ports |
+| `deny <port> --ip <IP/CIDR>` | Remove a per-source-IP allowed port |
 | `reset` | Emergency stop + flush all TsunamiWall iptables rules |
 
 ## Configuration file
@@ -90,6 +92,23 @@ Key options include `trusted_ips`, `honeypot_start`/`honeypot_end`, `max_honeypo
 - **Firewall backend**: `iptables` via a dedicated `TSUNAMIWALL` chain.
 - **CLI/TUI**: Unix-socket client talking to the daemon.
 - **Payload logging**: captured data is written to `/var/log/tsunamiwall/bycountry/{CC}/{IP}/`.
+- **Log viewer script**: `scripts/tsunamiwall-logs` makes it easy to inspect hits and payloads.
+
+## Log viewer
+
+The `scripts/tsunamiwall-logs` script reads the JSONL hit log and the per-country
+payload tree without needing the daemon socket:
+
+```bash
+scripts/tsunamiwall-logs recent               # last 50 hits
+scripts/tsunamiwall-logs recent 20            # last 20 hits
+scripts/tsunamiwall-logs tail                 # follow the hit log live
+scripts/tsunamiwall-logs by-ip 1.2.3.4
+scripts/tsunamiwall-logs by-country US
+scripts/tsunamiwall-logs by-dst 10005
+scripts/tsunamiwall-logs payloads 1.2.3.4     # show captured payloads for an IP
+scripts/tsunamiwall-logs stats                # top IPs, countries and ports
+```
 
 ## Documentation
 - `docs/usage.md` — installation, commands, and tuning.
