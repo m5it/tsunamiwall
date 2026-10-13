@@ -65,6 +65,10 @@ class Config:
     def hit_log_path(self) -> str:
         return os.path.join(self.log_dir, self.hit_log_name)
 
+    @property
+    def state_path(self) -> str:
+        return os.path.join(self.run_dir, "daemon-state.json")
+
 
 def default_config() -> Config:
     """Return the production default configuration."""

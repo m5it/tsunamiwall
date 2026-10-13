@@ -66,6 +66,7 @@ Active development. Core daemon runs on real servers, manages iptables, opens ho
 - All TsunamiWall rules live in a dedicated `TSUNAMIWALL` chain jumped from `INPUT`. Do not modify pre-existing rules.
 - Do not bind honeypots to ports below 10000 to avoid stealing system services.
 - The daemon must detect new real services and immediately release conflicting honeypots.
+- Runtime allow/deny state is persisted to `<run_dir>/daemon-state.json` and restored on startup.
 
 ## Running locally
 ```bash

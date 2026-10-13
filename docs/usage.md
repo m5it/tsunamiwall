@@ -84,6 +84,8 @@ sudo .venv/bin/python main.py allow 8080 --ip 203.0.113.0/24
 
 The rule is inserted before global `allow` rules, so it only opens the port for traffic coming from that source address or network. Use `deny` with the same `--ip` to remove it later.
 
+Runtime allow/deny changes are persisted to `/run/tsunamiwall/daemon-state.json` and restored automatically when the daemon restarts, so your rules survive reboots or restarts (as long as `run_dir` is on persistent storage).
+
 ### View honeypot hits
 ```bash
 sudo .venv/bin/python main.py logs

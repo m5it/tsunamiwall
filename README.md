@@ -55,7 +55,7 @@ Or use the convenience wrapper so you don't have to type the full venv path:
 | `watch` | Live full-screen TUI of honeypot hits |
 | `logs` | Show recent honeypot hits |
 | `allow <port>` / `allow --file <path>` | Allow one or many ports |
-| `allow <port> --ip <IP/CIDR>` | Allow a port only for a specific source IP or CIDR |
+| `allow <port> --ip <IP/CIDR>` | Allow a port only for a specific source IP or CIDR (persistent) |
 | `deny <port>` / `deny --file <path>` | Remove one or many allowed ports |
 | `deny <port> --ip <IP/CIDR>` | Remove a per-source-IP allowed port |
 | `reset` | Emergency stop + flush all TsunamiWall iptables rules |

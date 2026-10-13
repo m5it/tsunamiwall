@@ -37,6 +37,7 @@ class Daemon:
         self._server: asyncio.Server | None = None
         self._hit_log_fh = self._open_hit_log()
         self._payload_callback = default_payload_writer(self.cfg)
+        self._load_state()
 
     def _open_hit_log(self):
         os.makedirs(self.cfg.log_dir, exist_ok=True, mode=0o750)
@@ -87,6 +88,39 @@ class Daemon:
         logger.warning("Graceful shutdown timed out; forcing exit")
         os._exit(1)
 
+    def _state_dict(self) -> dict:
+        return {
+            "allowed_ports": sorted(self.allowed_ports),
+            "allowed_per_ip": {ip: sorted(ports) for ip, ports in sorted(self.allowed_per_ip.items())},
+        }
+
+    def _save_state(self) -> None:
+        """Persist runtime allow/deny state to disk."""
+        try:
+            os.makedirs(self.cfg.run_dir, exist_ok=True, mode=0o750)
+            Path(self.cfg.state_path).write_text(
+                json.dumps(self._state_dict(), indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        except Exception:
+            logger.exception("Failed to save daemon state to %s", self.cfg.state_path)
+
+    def _load_state(self) -> None:
+        """Load runtime allow/deny state from disk if present."""
+        path = Path(self.cfg.state_path)
+        if not path.exists():
+            return
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self.allowed_ports = set(int(p) for p in data.get("allowed_ports", []))
+            self.allowed_per_ip = {
+                ip: set(int(p) for p in ports)
+                for ip, ports in data.get("allowed_per_ip", {}).items()
+            }
+            logger.info("Restored daemon state from %s", path)
+        except Exception:
+            logger.exception("Failed to load daemon state from %s", path)
+
     async def stop(self) -> None:
         self._stop_event.set()
         for task in getattr(self, "_tasks", []):
@@ -111,6 +145,7 @@ class Daemon:
             self._hit_log_fh.close()
         except Exception:
             pass
+        self._save_state()
         self._remove_pid()
         reset(self.cfg.iptables_chain)
         logger.info("TsunamiWall daemon stopped")
@@ -161,6 +196,7 @@ class Daemon:
             allowed_per_ip=self.allowed_per_ip,
         )
         logger.debug("Reconciled: allowed=%s honeypots=%d", sorted(managed_allowed), len(honeypot_ports))
+        self._save_state()
 
     async def _stop_all_honeypots(self) -> None:
         for port in list(self.honeypots.keys()):
