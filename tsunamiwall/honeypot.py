@@ -23,7 +23,7 @@ class HitEvent:
     src_port: int
     dst_port: int
     proto: str
-    country: str = "UNKNOWN"
+    country_code: str = "UNKNOWN"
     action: str = "honeypot_hit"
 
 
@@ -103,12 +103,21 @@ class HoneypotServer:
                     payload=payload,
                 )
 
+        # Look up the country code before logging so the hit record is useful even
+        # if payload capture is disabled or the payload callback fails.
+        try:
+            from .geoip import country_code
+
+            country = country_code(src_ip)
+        except Exception:
+            country = "UNKNOWN"
         event = HitEvent(
             time=now,
             src_ip=src_ip,
             src_port=src_port,
             dst_port=dst_port,
             proto="tcp",
+            country_code=country,
         )
         self.log_hit(event)
 

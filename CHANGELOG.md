@@ -17,7 +17,7 @@ All notable changes to TsunamiWall are documented in this file.
 - **Emergency reset** — `reset` command falls back to a direct iptables flush if the daemon is not reachable.
 - **Live TUI** — `watch` subcommand opens a `curses` full-screen table of honeypot hits in real time.
 - **Payload capture + country grouping** — reads up to `payload_max_bytes` from each probe and writes raw bytes plus metadata to `/var/log/tsunamiwall/bycountry/{CC}/{IP}/`.
-- **Offline country lookup** — optional `iptocc` integration resolves attacker country codes without external APIs or databases.
+- **Offline country lookup** — `iptocc` integration resolves attacker country codes; country code is now recorded directly on every honeypot hit log entry.
 - **Convenience wrappers** — `run.sh` and `run-dev.sh` run TsunamiWall as root using the local `.venv` Python.
 - **Log analysis scripts** — `scripts/extract-attack-ports.sh` extracts unique source ports/IPs/destination ports from `dmesg` drop logs; `scripts/tsunamiwall-logs` provides a friendly CLI to inspect hits, payloads, payload previews inline with recent hits, and recently dropped destination ports.
 - **Tests** — pytest suite covering config, discovery, honeypot, iptables, CLI, TUI, trusted IPs, payload logging, per-IP allow rules, log viewer, and reset fallback.
