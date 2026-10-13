@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from scripts.tsunamiwall_logs import _dropped_ports, _iter_hits, _payload_files
+from scripts.tsunamiwall_logs import _dropped_ports, _find_payload_for_hit, _iter_hits, _payload_files
 
 
 def make_sample_log(tmp_path: Path) -> Path:
@@ -77,3 +77,22 @@ def test_dropped_ports_parses_dpt(monkeypatch):
     assert counts[12345] == 2
     assert counts[80] == 1
     assert 9999 not in counts
+
+
+def test_find_payload_for_hit(tmp_path):
+    log_dir = tmp_path / "logs"
+    base = log_dir / "bycountry" / "US" / "1.2.3.4"
+    base.mkdir(parents=True)
+    payload_file = base / "2026-10-13T20-00-00_10005.bin"
+    payload_file.write_bytes(b"hello scanner")
+
+    hit = {
+        "time": "2026-10-13T20:00:00Z",
+        "src_ip": "1.2.3.4",
+        "dst_port": 10005,
+        "country_code": "US",
+    }
+    assert _find_payload_for_hit(log_dir, hit) == payload_file
+
+    # Missing port returns None.
+    assert _find_payload_for_hit(log_dir, {"src_ip": "1.2.3.4"}) is None

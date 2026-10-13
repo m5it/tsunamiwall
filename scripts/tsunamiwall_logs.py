@@ -65,6 +65,17 @@ def _parser() -> argparse.ArgumentParser:
     payloads.add_argument("--country", metavar="CC", help="filter payloads by country code")
     payloads.add_argument("--last", type=int, metavar="N", help="show only the N most recent payloads")
 
+    recent_payloads_p = sub.add_parser(
+        "recent-payloads",
+        help=f"show the last {DEFAULT_TAIL} hits with a snippet of any captured payload",
+    )
+    recent_payloads_p.add_argument(
+        "count", type=int, nargs="?", default=DEFAULT_TAIL, help="number of hits"
+    )
+    recent_payloads_p.add_argument(
+        "--bytes", type=int, metavar="N", default=160, help="max payload bytes to preview"
+    )
+
     sub.add_parser("stats", help="summary statistics: top IPs, countries and probed ports")
 
     dropped_p = sub.add_parser(
@@ -274,6 +285,52 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def _find_payload_for_hit(log_dir: Path, hit: dict) -> Path | None:
+    """Find the newest payload file matching a hit's src_ip + dst_port."""
+    src_ip = hit.get("src_ip", "?")
+    dst_port = hit.get("dst_port")
+    if not src_ip or dst_port is None:
+        return None
+    base = log_dir / "bycountry"
+    if not base.exists():
+        return None
+
+    # Country code may be UNKNOWN; search all countries as fallback.
+    cc = hit.get("country_code", "*") or "*"
+    candidates: list[Path] = []
+    for pattern in (f"{cc}/{src_ip}/*_{dst_port}.bin", f"*/{src_ip}/*_{dst_port}.bin"):
+        candidates.extend(base.glob(pattern))
+    if not candidates:
+        return None
+    # Prefer the file whose name starts closest to the hit time, otherwise newest mtime.
+    hit_time = hit.get("time", "")
+    candidates.sort(
+        key=lambda p: (
+            not hit_time or not p.name.startswith(hit_time.replace(":", "-")[:10]),
+            -p.stat().st_mtime,
+        )
+    )
+    return candidates[0]
+
+
+def cmd_recent_payloads(args: argparse.Namespace) -> int:
+    _, log_dir = _load_config(args)
+    hits = list(_iter_hits(log_dir))[-args.count :]
+    if not hits:
+        print("No hits.")
+        return 0
+
+    for hit in hits:
+        print(_format_hit(hit))
+        payload_path = _find_payload_for_hit(log_dir, hit)
+        if payload_path is not None:
+            print("  payload:", _snip(payload_path, args.bytes)[: args.bytes])
+        else:
+            print("  payload: (none captured)")
+        print()
+    return 0
+
+
 def _drop_log_lines() -> Iterable[str]:
     """Yield raw lines from the best available kernel log source."""
     permission_denied = False
@@ -356,6 +413,7 @@ def main(argv: list[str] | None = None) -> int:
         "by-country": cmd_by_country,
         "by-dst": cmd_by_dst,
         "payloads": cmd_payloads,
+        "recent-payloads": cmd_recent_payloads,
         "stats": cmd_stats,
         "dropped": cmd_dropped,
     }

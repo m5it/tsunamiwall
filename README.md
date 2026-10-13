@@ -109,6 +109,8 @@ scripts/tsunamiwall-logs by-dst 10005
 scripts/tsunamiwall-logs payloads 1.2.3.4     # show captured payloads for an IP
 scripts/tsunamiwall-logs stats                # top IPs, countries and ports
 scripts/tsunamiwall-logs dropped              # top dropped destination ports
+scripts/tsunamiwall-logs recent-payloads      # recent hits with payload previews
+scripts/tsunamiwall-logs recent-payloads 10 --bytes 200
 ```
 
 ## Documentation
