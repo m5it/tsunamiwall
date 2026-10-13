@@ -147,6 +147,8 @@ class Daemon:
             logger.exception("Failed to load daemon state from %s", path)
 
     async def stop(self) -> None:
+        if self._stop_event.is_set():
+            return
         self._stop_event.set()
         for task in getattr(self, "_tasks", []):
             task.cancel()
@@ -190,13 +192,18 @@ class Daemon:
         """Re-scan sockets, update allowed set and honeypots, rewrite iptables."""
         real_ports = discover_ports(include_tcp=True, include_udp=True)
 
+        # Ports that are restricted to specific source IPs should not also be
+        # allowed globally just because something is listening on them.
+        per_ip_ports = set().union(*self.allowed_per_ip.values()) if self.allowed_per_ip else set()
+
         if self.cfg.auto_block_listeners:
             # Strict default-deny: only ports the user explicitly allows are opened.
             # Real services are not automatically allowed; they must be added via `allow`.
             managed_allowed = self.allowed_ports | (real_ports & self.allowed_ports)
         else:
-            # Normal allow-list behavior: any listening socket is treated as a real service.
-            managed_allowed = self.allowed_ports | real_ports
+            # Normal allow-list behavior: any listening socket is treated as a real service,
+            # except ports that are already restricted to specific source IPs.
+            managed_allowed = self.allowed_ports | (real_ports - per_ip_ports)
 
         # Compute available honeypot ports.
         available = safe_ports(managed_allowed, self.cfg)
@@ -348,8 +355,9 @@ class Daemon:
             await self._reconcile()
             return {"ok": True, "unblocked_ports": sorted(ports)}
         if action == "stop":
-            await self.stop()
-            return {"ok": True, "message": "daemon stopped gracefully; state saved"}
+            # Schedule the shutdown so the response can be sent before the server closes.
+            asyncio.get_running_loop().call_soon(lambda: asyncio.create_task(self.stop()))
+            return {"ok": True, "message": "daemon stopping gracefully; state will be saved"}
         if action == "reset":
             await self.stop()
             return {"ok": True, "message": "daemon stopped and rules flushed"}
