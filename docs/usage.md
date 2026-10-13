@@ -56,6 +56,23 @@ sudo .venv/bin/python main.py start
 ```
 Runs in the foreground. Use systemd, supervisord, or `nohup`/`screen` to run it as a service.
 
+### One-command start + TUI (`start.sh`)
+The `start.sh` wrapper starts the daemon in the background, opens the live `watch` TUI, and gracefully stops the daemon when you press **q**:
+
+```bash
+./start.sh
+# or with a custom config:
+./start.sh /etc/tsunamiwall/config.yaml
+```
+
+### Stop the daemon gracefully
+```bash
+sudo .venv/bin/python main.py stop
+# or:
+./run.sh stop
+```
+This saves runtime state (allowed/blocked ports) and flushes TsunamiWall rules. Use this for normal shutdowns; use `reset` only for emergencies.
+
 ### Show current state
 ```bash
 sudo .venv/bin/python main.py status
@@ -181,10 +198,12 @@ sudo .venv/bin/python tsunamiwall/emergency.py
 
 ## How it works
 1. The daemon scans `/proc/net/tcp` and `/proc/net/udp` every 30 seconds.
-2. Any port with a listening socket is allowed through iptables.
-3. Ports `10000-65535` that are not listening are bound by silent asyncio honeypot servers.
-4. Each probe to a honeypot port is logged as JSON to `/var/log/tsunamiwall/hits.logl`.
-5. Everything else is dropped and logged by iptables.
+2. By default, any port with a listening socket is allowed through iptables.
+3. With `auto_block_listeners: true`, listening sockets are **not** auto-allowed; only explicitly `allow`ed ports are opened.
+4. Ports `10000-65535` that are not listening (or not in use in strict mode) are bound by silent asyncio honeypot servers.
+5. Ports added via `block` are dropped and logged even if a service listens on them.
+6. Each probe to a honeypot port is logged as JSON to `/var/log/tsunamiwall/hits.logl`.
+7. Everything else is dropped and logged by iptables.
 
 ## Configuration file
 
@@ -210,6 +229,9 @@ Key tunables:
 - `honeypot_start` / `honeypot_end` — honeypot port range.
 - `max_honeypots` — hard cap on listeners (default 900, safe for default Linux fd limits).
 - `discovery_interval` — how often to re-scan sockets.
+- `trusted_ips` — IPs/CIDRs that bypass all filtering. Put your management IP here.
+- `auto_block_listeners` — strict default-deny mode; listening sockets are not auto-allowed.
+- Runtime `allow`/`deny`/`block` state is persisted to `<run_dir>/daemon-state.json`.
 
 ## Using a custom config with the CLI
 

@@ -46,12 +46,21 @@ Or use the convenience wrapper so you don't have to type the full venv path:
 ./run.sh reset
 ```
 
+For an all-in-one start, use the included `start.sh` script. It starts the daemon in the background, opens the live TUI, and gracefully stops the daemon when you press `q`:
+
+```bash
+./start.sh
+# or with a custom config:
+./start.sh /etc/tsunamiwall/config.yaml
+```
+
 ## CLI commands
 
 | Command | Purpose |
 |---|---|
 | `start` | Run the daemon in the foreground (needs root) |
-| `status` | Show allowed ports and active honeypots |
+| `stop` | Gracefully stop the daemon and save runtime state |
+| `status` | Show allowed/blocked ports and active honeypots |
 | `watch` | Live full-screen TUI of honeypot hits |
 | `logs` | Show recent honeypot hits |
 | `allow <port>` / `allow --file <path>` | Allow one or many ports |
@@ -71,7 +80,7 @@ TsunamiWall reads YAML configuration from (in order):
 3. `/etc/tsunamiwall/config.yaml`
 4. `~/.config/tsunamiwall/config.yaml`
 
-Key options include `trusted_ips`, `honeypot_start`/`honeypot_end`, `max_honeypots`, and payload capture settings.
+Key options include `trusted_ips`, `auto_block_listeners`, `honeypot_start`/`honeypot_end`, `max_honeypots`, and payload capture settings.
 
 ## Architecture
 
