@@ -115,6 +115,14 @@ def cmd_unblock(args: argparse.Namespace) -> int:
     return _print_response(_send(args, {"action": "unblock_many", "ports": ports}))
 
 
+def cmd_stop(args: argparse.Namespace) -> int:
+    cfg = _config(args)
+    if not os.path.exists(cfg.socket_path):
+        print("Daemon socket not found; daemon is not running.", file=sys.stderr)
+        return 0
+    return _print_response(_send(args, {"action": "stop"}))
+
+
 def cmd_reset(args: argparse.Namespace) -> int:
     cfg = _config(args)
     # If the daemon socket is missing or dead, perform a direct emergency reset
@@ -186,6 +194,9 @@ def main(argv: list[str] | None = None) -> int:
     status_p = sub.add_parser("status", help="show allowed ports and active honeypots")
     _add_config_arg(status_p)
 
+    stop_p = sub.add_parser("stop", help="gracefully stop the daemon and save state")
+    _add_config_arg(stop_p)
+
     reset_p = sub.add_parser("reset", help="emergency stop: flush rules and exit daemon")
     _add_config_arg(reset_p)
 
@@ -229,6 +240,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_start(args)
     if args.command == "status":
         return cmd_status(args)
+    if args.command == "stop":
+        return cmd_stop(args)
     if args.command == "reset":
         return cmd_reset(args)
     if args.command == "logs":

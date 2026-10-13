@@ -102,6 +102,8 @@ def _coerce_field(name: str, value: Any, field_type: str | type) -> Any:
         return float(value)
     if type_name == "str":
         return str(value)
+    if type_name == "bool":
+        return bool(value)
     raise TypeError(f"Unsupported config field type for {name}: {field_type}")
 
 

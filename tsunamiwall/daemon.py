@@ -347,6 +347,9 @@ class Daemon:
             self.blocked_ports.difference_update(ports)
             await self._reconcile()
             return {"ok": True, "unblocked_ports": sorted(ports)}
+        if action == "stop":
+            await self.stop()
+            return {"ok": True, "message": "daemon stopped gracefully; state saved"}
         if action == "reset":
             await self.stop()
             return {"ok": True, "message": "daemon stopped and rules flushed"}

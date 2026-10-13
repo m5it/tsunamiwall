@@ -54,8 +54,9 @@ fi
 echo "Opening live TUI (press 'q' to quit and stop the daemon)..."
 ./run.sh -c "$CONFIG" watch
 
-# After the TUI exits, stop the daemon cleanly.
+# After the TUI exits, stop the daemon gracefully. This saves runtime state
+# (allowed/blocked ports) before flushing iptables rules and exiting.
 echo "Stopping daemon..."
-./run.sh -c "$CONFIG" reset > /dev/null 2>&1 || true
+./run.sh -c "$CONFIG" stop > /dev/null 2>&1 || true
 
 echo "TsunamiWall stopped."
