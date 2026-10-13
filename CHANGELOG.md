@@ -20,6 +20,10 @@ All notable changes to TsunamiWall are documented in this file.
 - **Log analysis script** — `scripts/extract-attack-ports.sh` extracts unique source ports/IPs/destination ports from `dmesg` drop logs.
 - **Tests** — pytest suite covering config, discovery, honeypot, iptables, CLI, TUI, trusted IPs, payload logging, and reset fallback.
 
+### Fixed
+- **Graceful shutdown** — added timeouts to daemon stop, honeypot teardown, and iptables commands; falls back to hard exit after 10 seconds if shutdown hangs.
+- **Reset against dead daemon** — `reset` now correctly falls back to emergency flush when the daemon socket exists but no process is listening.
+
 ## v0.1.0 - initial scaffold
 
 - Project created with package structure, `pyproject.toml`, and basic documentation.

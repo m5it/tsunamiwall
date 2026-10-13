@@ -16,9 +16,14 @@ class IptablesError(Exception):
 
 def run_iptables(*args: str) -> None:
     """Run iptables with the given arguments, raising on error."""
-    cmd = ["iptables", "-w", "10"] + list(args)
+    cmd = ["iptables", "-w", "5"] + list(args)
     logger.debug("Running: %s", " ".join(shlex.quote(a) for a in cmd))
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+    except subprocess.TimeoutExpired as exc:
+        msg = f"iptables command timed out after 10s: {' '.join(shlex.quote(a) for a in cmd)}"
+        logger.error(msg)
+        raise IptablesError(msg) from exc
     if result.returncode != 0:
         msg = f"iptables failed ({result.returncode}): {result.stderr.strip()}"
         logger.error(msg)

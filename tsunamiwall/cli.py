@@ -93,12 +93,16 @@ def cmd_reset(args: argparse.Namespace) -> int:
     if socket_alive:
         try:
             return _print_response(_send(args, {"action": "reset"}))
-        except (ConnectionRefusedError, FileNotFoundError):
+        except (ConnectionRefusedError, FileNotFoundError, DaemonUnreachable):
             print("Daemon socket exists but no daemon is listening; performing direct reset.", file=sys.stderr)
 
     from .emergency import emergency_reset
 
-    emergency_reset()
+    try:
+        emergency_reset()
+    except Exception as exc:
+        print(f"Emergency reset failed: {exc}", file=sys.stderr)
+        return 1
     return 0
 
 

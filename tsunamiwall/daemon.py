@@ -78,20 +78,37 @@ class Daemon:
     def _request_stop(self) -> None:
         logger.info("Shutdown signal received")
         self._stop_event.set()
+        # Schedule a hard exit if graceful shutdown takes too long.
+        asyncio.get_running_loop().call_later(10.0, self._hard_exit)
+
+    def _hard_exit(self) -> None:
+        logger.warning("Graceful shutdown timed out; forcing exit")
+        os._exit(1)
 
     async def stop(self) -> None:
         self._stop_event.set()
         for task in getattr(self, "_tasks", []):
             task.cancel()
             try:
-                await task
+                await asyncio.wait_for(task, timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("Task did not cancel within timeout")
             except asyncio.CancelledError:
                 pass
-        await self._stop_all_honeypots()
+        try:
+            await asyncio.wait_for(self._stop_all_honeypots(), timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning("Honeypot shutdown timed out; continuing")
         if self._server is not None:
             self._server.close()
-            await self._server.wait_closed()
-        self._hit_log_fh.close()
+            try:
+                await asyncio.wait_for(self._server.wait_closed(), timeout=2.0)
+            except asyncio.TimeoutError:
+                pass
+        try:
+            self._hit_log_fh.close()
+        except Exception:
+            pass
         self._remove_pid()
         reset(self.cfg.iptables_chain)
         logger.info("TsunamiWall daemon stopped")

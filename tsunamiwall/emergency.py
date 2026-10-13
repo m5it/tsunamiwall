@@ -4,6 +4,7 @@ import logging
 import os
 import signal
 import sys
+import time
 from pathlib import Path
 
 from .config import default_config
@@ -27,6 +28,8 @@ def stop_daemon_if_running() -> None:
         logger.info("Sent SIGTERM to daemon process %d", pid)
     except ProcessLookupError:
         logger.warning("PID file exists but process %d is not running", pid)
+    except PermissionError:
+        logger.warning("Permission denied sending SIGTERM to process %d", pid)
 
 
 def emergency_reset() -> None:
@@ -41,6 +44,10 @@ def emergency_reset() -> None:
 
     cfg = default_config()
     stop_daemon_if_running()
+
+    # Wait briefly for the daemon to terminate so iptables rules are not rewritten.
+    time.sleep(1.0)
+
     reset(cfg.iptables_chain)
 
     # Clean up runtime files.
@@ -49,6 +56,8 @@ def emergency_reset() -> None:
             os.remove(path)
         except FileNotFoundError:
             pass
+        except PermissionError:
+            logger.warning("Permission denied removing %s", path)
 
     logger.info("TsunamiWall emergency reset complete")
 

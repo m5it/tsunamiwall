@@ -21,7 +21,7 @@ python3 -m venv .venv
 .venv/bin/pip install -e .
 
 # Optional: offline country lookups for captured payloads
-.venv/bin/pip install iptocc
+.venv/bin/pip install -r requirements-geoip.txt
 
 # Create a config
 sudo mkdir -p /etc/tsunamiwall
