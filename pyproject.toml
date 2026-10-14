@@ -4,24 +4,20 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tsunamiwall"
-version = "0.1.0"
-description = "Linux server firewall with per-port honeypot listeners"
+version = "1.0.0"
+description = "Linux server firewall with stealth per-port honeypot listeners"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 dependencies = [
     "pyyaml>=6.0",
 ]
-
-[project.optional-dependencies]
-geoip = ["iptocc>=1.0"]
-dev = ["pytest", "pytest-asyncio", "iptocc>=1.0"]
 authors = [
     {name = "TsunamiWall Contributors"},
 ]
 keywords = ["firewall", "honeypot", "security", "iptables", "asyncio"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: System Administrators",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",

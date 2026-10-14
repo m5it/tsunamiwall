@@ -29,6 +29,20 @@ All notable changes to TsunamiWall are documented in this file.
 - **Graceful shutdown** — added timeouts to daemon stop, honeypot teardown, and iptables commands; falls back to hard exit after 10 seconds if shutdown hangs.
 - **Reset against dead daemon** — `reset` now correctly falls back to emergency flush when the daemon socket exists but no process is listening.
 
+## [1.0.0] - 2026-10-14
+
+First stable release. TsunamiWall now provides a complete server firewall + honeypot workflow:
+
+- Default-deny `iptables` firewall in a dedicated `TSUNAMIWALL` chain.
+- Asyncio daemon with honeypot listeners on unused high ports.
+- CLI: `start`, `stop`, `status`, `watch`, `logs`, `allow`, `deny`, `block`, `unblock`, `reset`.
+- Per-source-IP/CIDR allow rules and global `block` rules.
+- `auto_block_listeners: true` strict default-deny mode.
+- Runtime state persistence across restarts.
+- Payload capture grouped by country and source IP.
+- Live `curses` TUI and `scripts/tsunamiwall-logs` viewer with text + hex payload previews.
+- Emergency reset and `start.sh` one-command start/TUI/stop wrapper.
+
 ## v0.1.0 - initial scaffold
 
 - Project created with package structure, `pyproject.toml`, and basic documentation.

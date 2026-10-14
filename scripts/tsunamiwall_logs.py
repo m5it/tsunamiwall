@@ -215,23 +215,42 @@ def _payload_files(log_dir: Path, ip_filter: str | None = None, country_filter: 
     return files
 
 
-def _snip(path: Path, max_bytes: int = 2048) -> str:
-    """Return a printable snippet of a raw payload file."""
+def _payload_bytes(path: Path, max_bytes: int = 2048) -> bytes:
+    """Read up to max_bytes from a payload file, gunzipping if needed."""
     try:
         with open(path, "rb") as fh:
             data = fh.read(max_bytes)
     except Exception as exc:
-        return f"<cannot read: {exc}>"
+        return b""
     if path.suffix == ".gz":
         try:
             data = gzip.decompress(data)
         except Exception:
             pass
-    text = data.decode("utf-8", errors="replace")
+    return data
+
+
+def _hex_snip(data: bytes, max_bytes: int = 256) -> str:
+    r"""Return a \xNN hex representation of the first bytes."""
+    preview = data[:max_bytes]
+    return "".join(f"\\x{b:02x}" for b in preview)
+
+
+def _text_snip(data: bytes, max_bytes: int = 2048) -> str:
+    """Return a printable text snippet of the first bytes."""
+    text = data[:max_bytes].decode("utf-8", errors="replace")
     text = text.replace("\n", " ").replace("\r", " ")
-    if len(data) >= max_bytes:
+    if len(data) > max_bytes:
         text += " ..."
     return text
+
+
+def _snip(path: Path, max_bytes: int = 2048) -> str:
+    """Return a printable snippet of a raw payload file."""
+    data = _payload_bytes(path, max_bytes)
+    if not data:
+        return "<empty or cannot read>"
+    return _text_snip(data, max_bytes)
 
 
 def cmd_payloads(args: argparse.Namespace) -> int:
@@ -252,8 +271,11 @@ def cmd_payloads(args: argparse.Namespace) -> int:
         cc = parts[0] if len(parts) > 0 else "?"
         ip = parts[1] if len(parts) > 1 else "?"
         mtime = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(path.stat().st_mtime))
-        print(f"{cc:8} {ip:20} {mtime:20} {path}")
-        print("  snippet:", _snip(path)[:160])
+        data = _payload_bytes(path, 256)
+        full_size = path.stat().st_size
+        print(f"{cc:8} {ip:20} {mtime:20} {path} size={full_size}")
+        print(f"  text({len(data)}):  ", _text_snip(data, 160))
+        print(f"  hex({len(data)}):   ", _hex_snip(data, 160))
         print()
     return 0
 
@@ -324,7 +346,11 @@ def cmd_recent_payloads(args: argparse.Namespace) -> int:
         print(_format_hit(hit))
         payload_path = _find_payload_for_hit(log_dir, hit)
         if payload_path is not None:
-            print("  payload:", _snip(payload_path, args.bytes)[: args.bytes])
+            data = _payload_bytes(payload_path, args.bytes)
+            full_size = payload_path.stat().st_size
+            print(f"  payload size: {full_size} bytes (showing first {len(data)})")
+            print(f"  text({len(data)}):  ", _text_snip(data, args.bytes))
+            print(f"  hex({len(data)}):   ", _hex_snip(data, args.bytes))
         else:
             print("  payload: (none captured)")
         print()

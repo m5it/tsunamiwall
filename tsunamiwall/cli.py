@@ -183,8 +183,17 @@ def _add_config_arg(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _version() -> str:
+    import importlib.metadata
+    try:
+        return importlib.metadata.version("tsunamiwall")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="tsunamiwall", description="TsunamiWall CLI")
+    parser.add_argument("--version", "-v", action="version", version=f"tsunamiwall {_version()}")
     _add_config_arg(parser)
     sub = parser.add_subparsers(dest="command", required=True)
 
