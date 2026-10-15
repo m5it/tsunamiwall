@@ -35,6 +35,8 @@ class Daemon:
         self.allowed_per_ip: dict[str, set[int]] = {}
         self.blocked_ports: set[int] = set()
         self._stop_event = asyncio.Event()
+        self._stop_lock = asyncio.Lock()
+        self._cleanup_done = asyncio.Event()
         self._server: asyncio.Server | None = None
         self._hit_log_fh = self._open_hit_log()
         self._payload_callback = default_payload_writer(self.cfg)
@@ -70,6 +72,10 @@ class Daemon:
 
         logger.info("TsunamiWall daemon started")
         await self._stop_event.wait()
+        # Run the same cleanup path regardless of why we woke up (CLI stop, reset,
+        # or SIGTERM/Ctrl+C). stop() is idempotent so a CLI-initiated stop does not
+        # run twice.
+        await self.stop()
 
     def _ensure_single_instance(self) -> None:
         """Exit if another daemon is already running; otherwise clean up stale pid file."""
@@ -104,12 +110,19 @@ class Daemon:
     def _request_stop(self) -> None:
         logger.info("Shutdown signal received")
         self._stop_event.set()
+        # Cleanup is performed by start() after it wakes from the stop event.
         # Schedule a hard exit if graceful shutdown takes too long.
-        asyncio.get_running_loop().call_later(10.0, self._hard_exit)
+        try:
+            loop = asyncio.get_running_loop()
+            loop.call_later(10.0, self._hard_exit)
+        except RuntimeError:
+            # No running loop; cannot schedule hard exit here.
+            pass
 
     def _hard_exit(self) -> None:
-        logger.warning("Graceful shutdown timed out; forcing exit")
-        os._exit(1)
+        if self._stop_event.is_set():
+            logger.warning("Graceful shutdown timed out; forcing exit")
+            os._exit(1)
 
     def _state_dict(self) -> dict:
         return {
@@ -147,35 +160,37 @@ class Daemon:
             logger.exception("Failed to load daemon state from %s", path)
 
     async def stop(self) -> None:
-        if self._stop_event.is_set():
-            return
-        self._stop_event.set()
-        for task in getattr(self, "_tasks", []):
-            task.cancel()
+        async with self._stop_lock:
+            if self._cleanup_done.is_set():
+                return
+            self._stop_event.set()
+            for task in getattr(self, "_tasks", []):
+                task.cancel()
+                try:
+                    await asyncio.wait_for(task, timeout=5.0)
+                except asyncio.TimeoutError:
+                    logger.warning("Task did not cancel within timeout")
+                except asyncio.CancelledError:
+                    pass
             try:
-                await asyncio.wait_for(task, timeout=5.0)
+                await asyncio.wait_for(self._stop_all_honeypots(), timeout=5.0)
             except asyncio.TimeoutError:
-                logger.warning("Task did not cancel within timeout")
-            except asyncio.CancelledError:
-                pass
-        try:
-            await asyncio.wait_for(self._stop_all_honeypots(), timeout=5.0)
-        except asyncio.TimeoutError:
-            logger.warning("Honeypot shutdown timed out; continuing")
-        if self._server is not None:
-            self._server.close()
+                logger.warning("Honeypot shutdown timed out; continuing")
+            if self._server is not None:
+                self._server.close()
+                try:
+                    await asyncio.wait_for(self._server.wait_closed(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    pass
             try:
-                await asyncio.wait_for(self._server.wait_closed(), timeout=2.0)
-            except asyncio.TimeoutError:
+                self._hit_log_fh.close()
+            except Exception:
                 pass
-        try:
-            self._hit_log_fh.close()
-        except Exception:
-            pass
-        self._save_state()
-        self._remove_pid()
-        reset(self.cfg.iptables_chain)
-        logger.info("TsunamiWall daemon stopped")
+            self._save_state()
+            self._remove_pid()
+            reset(self.cfg.iptables_chain)
+            logger.info("TsunamiWall daemon stopped")
+            self._cleanup_done.set()
 
     async def _discovery_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -355,10 +370,11 @@ class Daemon:
             await self._reconcile()
             return {"ok": True, "unblocked_ports": sorted(ports)}
         if action == "stop":
-            # Schedule the shutdown so the response can be sent before the server closes.
-            asyncio.get_running_loop().call_soon(lambda: asyncio.create_task(self.stop()))
+            # Set the stop event; start() will run the cleanup and exit.
+            self._stop_event.set()
             return {"ok": True, "message": "daemon stopping gracefully; state will be saved"}
         if action == "reset":
+            self._stop_event.set()
             await self.stop()
             return {"ok": True, "message": "daemon stopped and rules flushed"}
         return self._error("unknown action")

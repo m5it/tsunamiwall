@@ -40,6 +40,5 @@ payload_log_dir: "/var/log/tsunamiwall/bycountry"
 # Directories and file names.
 log_dir: "/var/log/tsunamiwall"
 run_dir: "/run/tsunamiwall"
-socket_path: "/run/tsunamiwall/daemon.sock"
-pid_path: "/run/tsunamiwall/daemon.pid"
 hit_log_name: "hits.logl"
+# socket_path and pid_path are derived from run_dir and are no longer configurable.

@@ -66,8 +66,7 @@ Key values:
 - `discovery_interval = 30` seconds
 - `iptables_chain = "TSUNAMIWALL"`
 - `log_dir = "/var/log/tsunamiwall"`
-- `run_dir = "/run/tsunamiwall"`
-- `socket_path = "/run/tsunamiwall/daemon.sock"`
+- `run_dir = "/run/tsunamiwall"` — `daemon.sock` and `daemon.pid` are derived from this directory
 - `max_honeypots = 900`
 - `trusted_ips = []` — source IPs/CIDRs allowed before any port filtering
 - `payload_max_bytes = 4096`

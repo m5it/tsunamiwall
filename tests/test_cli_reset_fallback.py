@@ -15,8 +15,7 @@ def test_reset_falls_back_to_emergency_when_no_socket(monkeypatch, tmp_path):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     cfg_file.write_text(
-        f"run_dir: {run_dir}\nsocket_path: {run_dir}/daemon.sock\n"
-        f"pid_path: {run_dir}/daemon.pid\nlog_dir: {tmp_path / 'log'}\n",
+        f"run_dir: {run_dir}\nlog_dir: {tmp_path / 'log'}\n",
         encoding="utf-8",
     )
 

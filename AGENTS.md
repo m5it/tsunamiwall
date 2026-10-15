@@ -61,8 +61,9 @@ Active development. Core daemon runs on real servers, manages iptables, opens ho
 ## Important behavioral notes
 - `sudo` does **not** see the user's `.venv`. Always run with the absolute venv path or use `run.sh` / `run-dev.sh`.
 - The daemon must run as root (iptables + low port binding not needed, but raw sockets and log dirs do).
-- Ctrl+C triggers `SIGINT`; the daemon has a 10-second graceful shutdown with hard `_exit()` fallback.
+- Ctrl+C / SIGTERM now route through the same `stop()` cleanup path as the CLI `stop` command, flushing rules, saving state, and removing the PID file. The daemon still has a 10-second graceful shutdown with hard `_exit()` fallback.
 - `reset` first tries to talk to the daemon; if the socket is dead it falls back to direct iptables flush.
+- `daemon.sock` and `daemon.pid` are derived from `run_dir`; do not set `socket_path` or `pid_path` independently.
 - All TsunamiWall rules live in a dedicated `TSUNAMIWALL` chain jumped from `INPUT`. Do not modify pre-existing rules.
 - Do not bind honeypots to ports below 10000 to avoid stealing system services.
 - The daemon must detect new real services and immediately release conflicting honeypots.

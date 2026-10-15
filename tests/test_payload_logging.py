@@ -12,8 +12,6 @@ def test_payload_writer_creates_country_and_ip_dirs():
             payload_log_dir=tmpdir,
             log_dir=tmpdir,
             run_dir=tmpdir,
-            socket_path=os.path.join(tmpdir, "daemon.sock"),
-            pid_path=os.path.join(tmpdir, "daemon.pid"),
         )
         writer = default_payload_writer(cfg)
         session = PayloadSession(

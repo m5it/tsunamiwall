@@ -21,8 +21,6 @@ class Config:
     iptables_chain: str = "TSUNAMIWALL"
     log_dir: str = "/var/log/tsunamiwall"
     run_dir: str = "/run/tsunamiwall"
-    socket_path: str = "/run/tsunamiwall/daemon.sock"
-    pid_path: str = "/run/tsunamiwall/daemon.pid"
     hit_log_name: str = "hits.logl"
     # Maximum honeypot listeners. The default is kept below typical Linux
     # soft nofile limits (1024) to avoid startup failures. Raise on servers
@@ -73,6 +71,14 @@ class Config:
     @property
     def state_path(self) -> str:
         return os.path.join(self.run_dir, "daemon-state.json")
+
+    @property
+    def socket_path(self) -> str:
+        return os.path.join(self.run_dir, "daemon.sock")
+
+    @property
+    def pid_path(self) -> str:
+        return os.path.join(self.run_dir, "daemon.pid")
 
 
 def default_config() -> Config:
@@ -139,6 +145,13 @@ def load_config(path: str | os.PathLike | None = None) -> Config:
     raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     if not isinstance(raw, dict):
         raise ValueError(f"Config file {config_path} must contain a YAML mapping")
+
+    # socket_path and pid_path are now derived from run_dir; accept them in old
+    # configs but ignore them rather than failing.
+    deprecated_keys = {"socket_path", "pid_path"}
+    for key in list(raw.keys()):
+        if key in deprecated_keys:
+            raw.pop(key)
 
     known = {f.name: f.type for f in fields(Config)}
     overrides: dict[str, Any] = {}
