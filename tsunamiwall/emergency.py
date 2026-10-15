@@ -13,9 +13,9 @@ from .iptables import reset
 logger = logging.getLogger("tsunamiwall.emergency")
 
 
-def stop_daemon_if_running() -> None:
+def stop_daemon_if_running(cfg=None) -> None:
     """Send SIGTERM to the daemon if its PID file exists and points to a live process."""
-    cfg = default_config()
+    cfg = cfg or default_config()
     pid_path = cfg.pid_path
     if not os.path.exists(pid_path):
         return
@@ -32,7 +32,7 @@ def stop_daemon_if_running() -> None:
         logger.warning("Permission denied sending SIGTERM to process %d", pid)
 
 
-def emergency_reset() -> None:
+def emergency_reset(cfg=None) -> None:
     """Stop the daemon and flush all TsunamiWall iptables rules."""
     logging.basicConfig(
         level=logging.INFO,
@@ -42,8 +42,8 @@ def emergency_reset() -> None:
         logger.error("Emergency reset must be run as root")
         sys.exit(1)
 
-    cfg = default_config()
-    stop_daemon_if_running()
+    cfg = cfg or default_config()
+    stop_daemon_if_running(cfg)
 
     # Wait briefly for the daemon to terminate so iptables rules are not rewritten.
     time.sleep(1.0)

@@ -21,7 +21,7 @@ def test_reset_falls_back_to_emergency_when_no_socket(monkeypatch, tmp_path):
 
     called = {"emergency": False}
 
-    def fake_emergency():
+    def fake_emergency(cfg=None):
         called["emergency"] = True
 
     monkeypatch.setattr("tsunamiwall.emergency.emergency_reset", fake_emergency)

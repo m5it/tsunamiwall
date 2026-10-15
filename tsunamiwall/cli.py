@@ -143,7 +143,7 @@ def cmd_reset(args: argparse.Namespace) -> int:
     from .emergency import emergency_reset
 
     try:
-        emergency_reset()
+        emergency_reset(cfg)
     except Exception as exc:
         print(f"Emergency reset failed: {exc}", file=sys.stderr)
         return 1

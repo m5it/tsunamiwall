@@ -12,6 +12,7 @@ All notable changes to TsunamiWall are documented in this file.
 - **Global `block` precedence** — a globally `block`ed port now overrides auto-discovered services, explicit `allow` rules, and per-source-IP `allow` rules. Blocked ports are also excluded from the honeypot pool.
 - **Atomic iptables rule updates** — `build_rules` now builds a fresh shadow chain and swaps it in, so packets never pass through a partially-built or flushed-empty chain. On failure it rolls back to the previous ruleset.
 - **Daemon error response type** — `_error()` and `_handle_client()` now return/emit JSON `dict`s instead of pre-encoded JSON strings, so the CLI can safely call `.get()` on every response. Invalid ports and unknown actions no longer crash the client.
+- **Emergency reset honors custom config** — `emergency_reset()` now accepts a config object and uses its `iptables_chain` and `run_dir`. `cmd_reset` passes the loaded config through, so a custom chain is properly flushed when the daemon is unreachable.
 
 ## [1.0.0] - 2026-10-14
 
