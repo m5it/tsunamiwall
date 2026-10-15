@@ -152,14 +152,22 @@ def default_payload_writer(cfg: Config) -> Callable[[PayloadSession], None]:
     base_dir = Path(cfg.payload_log_dir)
 
     def _write(session: PayloadSession) -> None:
+        # Skip empty payloads: timed-out or zero-byte probes are logged in the hit
+        # stream, but there is nothing useful to store on disk.
+        if not session.payload:
+            return
+
         cc = country_code(session.src_ip)
         session.country = cc
         safe_ip = sanitize_ip(session.src_ip)
         ip_dir = base_dir / cc / safe_ip
         ip_dir.mkdir(parents=True, exist_ok=True, mode=0o750)
 
-        # Use timestamp to avoid overwriting previous sessions from the same IP.
-        filename = f"{session.start_time.replace(':', '-')}_{session.dst_port}.bin"
+        # Use sub-second timestamp + destination port to avoid overwriting
+        # multiple probes from the same IP to the same port in the same second.
+        ts = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
+        subsec = int(time.time() * 1_000_000) % 1_000_000
+        filename = f"{ts.replace(':', '-')}.{subsec:06d}_{session.dst_port}_{session.src_port}.bin"
         payload_path = ip_dir / filename
         payload_path.write_bytes(session.payload)
 

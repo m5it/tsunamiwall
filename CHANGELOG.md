@@ -13,6 +13,7 @@ All notable changes to TsunamiWall are documented in this file.
 - **Atomic iptables rule updates** — `build_rules` now builds a fresh shadow chain and swaps it in, so packets never pass through a partially-built or flushed-empty chain. On failure it rolls back to the previous ruleset.
 - **Daemon error response type** — `_error()` and `_handle_client()` now return/emit JSON `dict`s instead of pre-encoded JSON strings, so the CLI can safely call `.get()` on every response. Invalid ports and unknown actions no longer crash the client.
 - **Emergency reset honors custom config** — `emergency_reset()` now accepts a config object and uses its `iptables_chain` and `run_dir`. `cmd_reset` passes the loaded config through, so a custom chain is properly flushed when the daemon is unreachable.
+- **Payload file uniqueness + empty-payload skip** — payload filenames now include sub-second microsecond precision and source port, so rapid probes from the same IP no longer overwrite each other. Empty/timed-out payloads are no longer written to disk or metadata; they remain visible in the hit log only.
 
 ## [1.0.0] - 2026-10-14
 

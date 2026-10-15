@@ -33,3 +33,53 @@ def test_payload_writer_creates_country_and_ip_dirs():
         payload_files = list(ip_dir.glob("*.bin"))
         assert len(payload_files) == 1
         assert payload_files[0].read_bytes() == b"hello scanner"
+
+
+def test_payload_writer_does_not_overwrite_same_second():
+    """Multiple probes from the same IP to the same dst port in the same second
+    must create separate payload files."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cfg = Config(
+            payload_log_dir=tmpdir,
+            log_dir=tmpdir,
+            run_dir=tmpdir,
+        )
+        writer = default_payload_writer(cfg)
+        for i in range(3):
+            writer(
+                PayloadSession(
+                    start_time="2026-10-12T01:00:00Z",
+                    src_ip="8.8.8.8",
+                    src_port=12345 + i,
+                    dst_port=10348,
+                    payload=b"probe",
+                )
+            )
+
+        ip_dir = Path(tmpdir) / "US" / "8.8.8.8"
+        payload_files = list(ip_dir.glob("*.bin"))
+        assert len(payload_files) == 3
+
+
+def test_payload_writer_skips_empty_payloads():
+    """Timed-out or zero-byte probes should not create payload files or metadata."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cfg = Config(
+            payload_log_dir=tmpdir,
+            log_dir=tmpdir,
+            run_dir=tmpdir,
+        )
+        writer = default_payload_writer(cfg)
+        writer(
+            PayloadSession(
+                start_time="2026-10-12T01:00:00Z",
+                src_ip="8.8.8.8",
+                src_port=12345,
+                dst_port=10348,
+                payload=b"",
+            )
+        )
+
+        ip_dir = Path(tmpdir) / "US" / "8.8.8.8"
+        assert not list(ip_dir.glob("*.bin")), "empty payload must not create a .bin file"
+        assert not (ip_dir / "sessions.logl").exists(), "empty payload must not create metadata"
