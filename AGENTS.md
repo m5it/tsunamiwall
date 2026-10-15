@@ -69,6 +69,7 @@ Active development. Core daemon runs on real servers, manages iptables, opens ho
 - The daemon must detect new real services and immediately release conflicting honeypots.
 - Runtime allow/block/deny state is persisted to `<run_dir>/daemon-state.json` and restored on startup.
 - `auto_block_listeners: true` switches the daemon to strict default-deny: discovered listening sockets are not automatically allowed.
+- A globally `block`ed port overrides `allow`, per-source-IP `allow`, auto-discovered services, and honeypot selection. `trusted_ips` still bypass the block.
 
 ## Running locally
 ```bash

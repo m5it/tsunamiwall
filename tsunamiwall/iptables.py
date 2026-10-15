@@ -85,18 +85,19 @@ def build_rules(
       1. Allow trusted source IPs/CIDRs.
       2. Allow loopback.
       3. Allow established/related.
-      4. Allow per-source-IP/CIDR ports.
-      5. Allow explicit real-service ports globally.
-      6. Allow honeypot ports.
-      7. Explicitly blocked ports (TCP+UDP).
+      4. Explicitly blocked ports (TCP+UDP) — dropped before any allow rules.
+      5. Allow per-source-IP/CIDR ports.
+      6. Allow explicit real-service ports globally.
+      7. Allow honeypot ports.
       8. Log and drop everything else.
     """
-    allowed = sorted(set(allowed_ports))
-    honeypots = sorted(set(honeypot_ports))
-    blocked = sorted(set(blocked_ports or ()))
+    blocked = set(blocked_ports or ())
+    allowed = sorted(set(allowed_ports) - blocked)
+    honeypots = sorted(set(honeypot_ports) - blocked)
+    blocked_sorted = sorted(blocked)
     trusted = sorted(set(trusted_ips or ()))
     per_ip: dict[str, set[int]] = {
-        ip: set(ports)
+        ip: set(ports) - blocked
         for ip, ports in (allowed_per_ip or {}).items()
         if ports
     }
@@ -111,20 +112,8 @@ def build_rules(
     run_iptables("-A", chain, "-i", "lo", "-j", "ACCEPT")
     # 3. Existing connections
     run_iptables("-A", chain, "-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT")
-    # 4. Per-source-IP/CIDR allowed ports (TCP+UDP)
-    for ip in sorted(per_ip):
-        for port in sorted(per_ip[ip]):
-            run_iptables("-A", chain, "-s", ip, "-p", "tcp", "--dport", str(port), "-j", "ACCEPT")
-            run_iptables("-A", chain, "-s", ip, "-p", "udp", "--dport", str(port), "-j", "ACCEPT")
-    # 5. Real services (TCP+UDP)
-    for port in allowed:
-        run_iptables("-A", chain, "-p", "tcp", "--dport", str(port), "-j", "ACCEPT")
-        run_iptables("-A", chain, "-p", "udp", "--dport", str(port), "-j", "ACCEPT")
-    # 6. Honeypot ports (TCP only in v1)
-    for port in honeypots:
-        run_iptables("-A", chain, "-p", "tcp", "--dport", str(port), "-j", "ACCEPT")
-    # 7. Explicitly blocked ports (TCP+UDP) — logged and dropped even if a service listens.
-    for port in blocked:
+    # 4. Explicitly blocked ports (TCP+UDP) — logged and dropped even if a service listens.
+    for port in blocked_sorted:
         run_iptables(
             "-A",
             chain,
@@ -155,6 +144,18 @@ def build_rules(
             "4",
         )
         run_iptables("-A", chain, "-p", "udp", "--dport", str(port), "-j", "DROP")
+    # 5. Per-source-IP/CIDR allowed ports (TCP+UDP)
+    for ip in sorted(per_ip):
+        for port in sorted(per_ip[ip]):
+            run_iptables("-A", chain, "-s", ip, "-p", "tcp", "--dport", str(port), "-j", "ACCEPT")
+            run_iptables("-A", chain, "-s", ip, "-p", "udp", "--dport", str(port), "-j", "ACCEPT")
+    # 6. Real services (TCP+UDP)
+    for port in allowed:
+        run_iptables("-A", chain, "-p", "tcp", "--dport", str(port), "-j", "ACCEPT")
+        run_iptables("-A", chain, "-p", "udp", "--dport", str(port), "-j", "ACCEPT")
+    # 7. Honeypot ports (TCP only in v1)
+    for port in honeypots:
+        run_iptables("-A", chain, "-p", "tcp", "--dport", str(port), "-j", "ACCEPT")
     # 8. Default drop with logging
     run_iptables("-A", chain, "-j", "LOG", "--log-prefix", "TSUNAMIWALL-DROP: ", "--log-level", "4")
     run_iptables("-A", chain, "-j", "DROP")

@@ -99,6 +99,8 @@ sudo .venv/bin/python main.py block 1337
 sudo .venv/bin/python main.py unblock 1337
 ```
 
+A globally `block`ed port is dropped and logged even if it is also in the `allow` list, allowed for a specific source IP/CIDR, or has a listening service. `block` overrides everything except `trusted_ips`.
+
 ### Strict default-deny mode
 Add this to your config to stop TsunamiWall from automatically allowing every listening socket:
 ```yaml

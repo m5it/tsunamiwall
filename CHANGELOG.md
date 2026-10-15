@@ -30,6 +30,7 @@ All notable changes to TsunamiWall are documented in this file.
 - **Signal shutdown cleanup** — SIGTERM/Ctrl+C now route through the same `stop()` cleanup path as the CLI `stop` command, so firewall rules are flushed, state is saved, and the PID file is removed.
 - **Reset against dead daemon** — `reset` now correctly falls back to emergency flush when the daemon socket exists but no process is listening.
 - **Derived run-time paths** — `socket_path` and `pid_path` are now derived from `run_dir` instead of being independent config options. Old configs that still contain them are accepted but ignored.
+- **Global `block` precedence** — a globally `block`ed port now overrides auto-discovered services, explicit `allow` rules, and per-source-IP `allow` rules. Blocked ports are also excluded from the honeypot pool.
 
 ## [1.0.0] - 2026-10-14
 

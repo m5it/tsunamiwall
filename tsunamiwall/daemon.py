@@ -211,6 +211,8 @@ class Daemon:
         # allowed globally just because something is listening on them.
         per_ip_ports = set().union(*self.allowed_per_ip.values()) if self.allowed_per_ip else set()
 
+        blocked = self.blocked_ports
+
         if self.cfg.auto_block_listeners:
             # Strict default-deny: only ports the user explicitly allows are opened.
             # Real services are not automatically allowed; they must be added via `allow`.
@@ -220,8 +222,11 @@ class Daemon:
             # except ports that are already restricted to specific source IPs.
             managed_allowed = self.allowed_ports | (real_ports - per_ip_ports)
 
-        # Compute available honeypot ports.
-        available = safe_ports(managed_allowed, self.cfg)
+        # A global block wins over auto-discovery and per-IP allows.
+        managed_allowed -= blocked
+
+        # Compute available honeypot ports. Blocked ports must never become honeypots.
+        available = safe_ports(managed_allowed, self.cfg) - blocked
 
         # Start honeypots that are not running.
         to_start = available - set(self.honeypots.keys())
@@ -239,14 +244,19 @@ class Daemon:
         for port in to_stop:
             await self.honeypots.pop(port).stop()
 
-        # Rewrite iptables.
+        # Rewrite iptables. Global blocks override per-IP allows.
         honeypot_ports = set(self.honeypots.keys())
+        allowed_per_ip = {
+            ip: ports - blocked
+            for ip, ports in self.allowed_per_ip.items()
+            if ports - blocked
+        }
         build_rules(
             self.cfg.iptables_chain,
             managed_allowed,
             honeypot_ports,
             trusted_ips=self.cfg.trusted_ips,
-            allowed_per_ip=self.allowed_per_ip,
+            allowed_per_ip=allowed_per_ip,
             blocked_ports=self.blocked_ports,
         )
         logger.info("Reconciled: allowed=%s honeypots=%d", sorted(managed_allowed), len(honeypot_ports))

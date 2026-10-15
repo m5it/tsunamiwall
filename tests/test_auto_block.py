@@ -40,8 +40,14 @@ def test_build_rules_includes_blocked_ports(monkeypatch):
     block_rules = [cmd for cmd in commands if any("TSUNAMIWALL-BLOCK" in str(part) for part in cmd)]
     assert len(block_rules) == 4  # TCP+UDP LOG for each of 2 blocked ports
 
-    # Ensure blocked ports come after honeypot allows and before default drop.
-    allow_10005_idx = next(i for i, cmd in enumerate(commands) if "--dport" in cmd and "10005" in cmd and "ACCEPT" in cmd)
+    # Blocked-port DROP rules must come before any non-trust allow rules so a
+    # block cannot be bypassed by a global allow, per-IP allow, or honeypot.
     first_block_idx = next(i for i, cmd in enumerate(commands) if any("TSUNAMIWALL-BLOCK" in str(part) for part in cmd))
+    allow_10005_idx = next(i for i, cmd in enumerate(commands) if "--dport" in cmd and "10005" in cmd and "ACCEPT" in cmd)
     drop_idx = next(i for i, cmd in enumerate(commands) if cmd == ("-A", "TW-TEST", "-j", "DROP"))
-    assert allow_10005_idx < first_block_idx < drop_idx
+    assert first_block_idx < allow_10005_idx < drop_idx
+
+    # Blocked ports are removed from the allow sets; no ACCEPT rules for 1337 or 8080.
+    allowed_dports = {cmd[cmd.index("--dport") + 1] for cmd in commands if "--dport" in cmd and "ACCEPT" in cmd}
+    assert "1337" not in allowed_dports
+    assert "8080" not in allowed_dports
