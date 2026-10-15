@@ -290,14 +290,14 @@ class Daemon:
             try:
                 cmd = json.loads(data.decode("utf-8"))
             except json.JSONDecodeError:
-                writer.write(self._error("invalid json").encode("utf-8"))
+                writer.write((json.dumps({"ok": False, "error": "invalid json"}) + "\n").encode("utf-8"))
                 return
             response = await self._process_command(cmd)
             writer.write((json.dumps(response) + "\n").encode("utf-8"))
             await writer.drain()
         except Exception as exc:
             logger.exception("CLI handler error")
-            writer.write(self._error(str(exc)).encode("utf-8"))
+            writer.write((json.dumps({"ok": False, "error": str(exc)}) + "\n").encode("utf-8"))
         finally:
             writer.close()
             try:
@@ -321,7 +321,7 @@ class Daemon:
         if action == "allow":
             port = int(cmd.get("port", 0))
             if not 1 <= port <= 65535:
-                return self._error("invalid port")
+                return {"ok": False, "error": "invalid port"}
             self.allowed_ports.add(port)
             await self._reconcile()
             return {"ok": True, "allowed_port": port}
@@ -329,13 +329,13 @@ class Daemon:
             ports = cmd.get("ports", [])
             bad = [p for p in ports if not 1 <= p <= 65535]
             if bad:
-                return self._error(f"invalid ports: {bad}")
+                return {"ok": False, "error": f"invalid ports: {bad}"}
             ip = cmd.get("ip")
             if ip:
                 try:
                     ipaddress.ip_network(ip, strict=False)
                 except ValueError as exc:
-                    return self._error(f"invalid ip: {exc}")
+                    return {"ok": False, "error": f"invalid ip: {exc}"}
                 self.allowed_per_ip.setdefault(ip, set()).update(ports)
                 await self._reconcile()
                 return {"ok": True, "allowed_per_ip": {ip: sorted(self.allowed_per_ip[ip])}}
@@ -368,7 +368,7 @@ class Daemon:
             ports = cmd.get("ports", [])
             bad = [p for p in ports if not 1 <= p <= 65535]
             if bad:
-                return self._error(f"invalid ports: {bad}")
+                return {"ok": False, "error": f"invalid ports: {bad}"}
             self.blocked_ports.update(ports)
             # A blocked port cannot be simultaneously allowed globally.
             self.allowed_ports.difference_update(ports)
@@ -387,11 +387,7 @@ class Daemon:
             self._stop_event.set()
             await self.stop()
             return {"ok": True, "message": "daemon stopped and rules flushed"}
-        return self._error("unknown action")
-
-    @staticmethod
-    def _error(message: str) -> str:
-        return json.dumps({"ok": False, "error": message}) + "\n"
+        return {"ok": False, "error": "unknown action"}
 
 
 def run_daemon(*, cfg_path: str | None = None) -> None:

@@ -34,7 +34,10 @@ def _send(args: argparse.Namespace, cmd: dict) -> dict:
         except Exception:
             pass
         try:
-            return json.loads(data.decode("utf-8"))
+            parsed = json.loads(data.decode("utf-8"))
+            if not isinstance(parsed, dict):
+                return {"ok": False, "error": "bad response from daemon"}
+            return parsed
         except json.JSONDecodeError:
             return {"ok": False, "error": "bad response from daemon"}
 
@@ -48,7 +51,10 @@ class DaemonUnreachable(Exception):
     """Raised when the CLI cannot connect to the daemon socket."""
 
 
-def _print_response(resp: dict) -> int:
+def _print_response(resp: dict | str) -> int:
+    if isinstance(resp, str):
+        print(json.dumps({"ok": False, "error": resp}, indent=2))
+        return 1
     print(json.dumps(resp, indent=2))
     return 0 if resp.get("ok") else 1
 
