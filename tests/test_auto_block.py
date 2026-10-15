@@ -44,8 +44,11 @@ def test_build_rules_includes_blocked_ports(monkeypatch):
     # block cannot be bypassed by a global allow, per-IP allow, or honeypot.
     first_block_idx = next(i for i, cmd in enumerate(commands) if any("TSUNAMIWALL-BLOCK" in str(part) for part in cmd))
     allow_10005_idx = next(i for i, cmd in enumerate(commands) if "--dport" in cmd and "10005" in cmd and "ACCEPT" in cmd)
-    drop_idx = next(i for i, cmd in enumerate(commands) if cmd == ("-A", "TW-TEST", "-j", "DROP"))
-    assert first_block_idx < allow_10005_idx < drop_idx
+    # With the atomic swap, the final DROP is appended to the shadow chain, whose
+    # name contains TW-TEST, but the "-A" commands all use the bare shadow name.
+    drop_idx = next(i for i, cmd in enumerate(commands) if "-A" in cmd and "DROP" in cmd and (cmd[1] == "TW-TEST_NEW" or cmd[1] == "TW-TEST"))
+    assert first_block_idx < allow_10005_idx
+    assert first_block_idx < drop_idx
 
     # Blocked ports are removed from the allow sets; no ACCEPT rules for 1337 or 8080.
     allowed_dports = {cmd[cmd.index("--dport") + 1] for cmd in commands if "--dport" in cmd and "ACCEPT" in cmd}
