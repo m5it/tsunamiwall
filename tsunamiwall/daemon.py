@@ -21,6 +21,7 @@ from .honeypot import (
     jsonl_formatter,
 )
 from .iptables import build_rules, reset
+from .rotation import cleanup_payloads, rotate_hit_log
 
 logger = logging.getLogger("tsunamiwall.daemon")
 
@@ -44,6 +45,11 @@ class Daemon:
 
     def _open_hit_log(self):
         os.makedirs(self.cfg.log_dir, exist_ok=True, mode=0o750)
+        rotate_hit_log(
+            self.cfg.hit_log_path,
+            self.cfg.hit_log_max_bytes,
+            self.cfg.hit_log_max_backups,
+        )
         return open(self.cfg.hit_log_path, "a", encoding="utf-8", buffering=1)
 
     def _log_hit(self, event: HitEvent) -> None:
@@ -193,11 +199,30 @@ class Daemon:
             self._cleanup_done.set()
 
     async def _discovery_loop(self) -> None:
+        iterations = 0
         while not self._stop_event.is_set():
             try:
                 await self._reconcile()
             except Exception:
                 logger.exception("Discovery/reconcile failed")
+
+            # Periodically rotate the hit log and enforce payload retention.
+            iterations += 1
+            if iterations % 10 == 0:
+                try:
+                    self._hit_log_fh.flush()
+                    rotated = rotate_hit_log(
+                        self.cfg.hit_log_path,
+                        self.cfg.hit_log_max_bytes,
+                        self.cfg.hit_log_max_backups,
+                    )
+                    if rotated is not None:
+                        self._hit_log_fh.close()
+                        self._hit_log_fh = self._open_hit_log()
+                    cleanup_payloads(self.cfg.payload_log_dir, self.cfg.payload_log_max_bytes)
+                except Exception:
+                    logger.exception("Log/payload rotation failed")
+
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=self.cfg.discovery_interval)
             except asyncio.TimeoutError:
@@ -258,6 +283,8 @@ class Daemon:
             trusted_ips=self.cfg.trusted_ips,
             allowed_per_ip=allowed_per_ip,
             blocked_ports=self.blocked_ports,
+            log_rate_limit=self.cfg.log_rate_limit,
+            log_rate_burst=self.cfg.log_rate_burst,
         )
         logger.info("Reconciled: allowed=%s honeypots=%d", sorted(managed_allowed), len(honeypot_ports))
         self._save_state()

@@ -4,7 +4,7 @@ All notable changes to TsunamiWall are documented in this file.
 
 ## [Unreleased] - current
 
-## [1.0.1] - 2026-10-15
+## [1.1.0] - 2026-10-16
 
 ### Fixed
 - **Signal shutdown cleanup** — SIGTERM/Ctrl+C now route through the same `stop()` cleanup path as the CLI `stop` command, so firewall rules are flushed, state is saved, and the PID file is removed.
@@ -14,6 +14,17 @@ All notable changes to TsunamiWall are documented in this file.
 - **Daemon error response type** — `_error()` and `_handle_client()` now return/emit JSON `dict`s instead of pre-encoded JSON strings, so the CLI can safely call `.get()` on every response. Invalid ports and unknown actions no longer crash the client.
 - **Emergency reset honors custom config** — `emergency_reset()` now accepts a config object and uses its `iptables_chain` and `run_dir`. `cmd_reset` passes the loaded config through, so a custom chain is properly flushed when the daemon is unreachable.
 - **Payload file uniqueness + empty-payload skip** — payload filenames now include sub-second microsecond precision and source port, so rapid probes from the same IP no longer overwrite each other. Empty/timed-out payloads are no longer written to disk or metadata; they remain visible in the hit log only.
+
+### Added
+- **Log rotation** — `hits.logl` is rotated when it exceeds `hit_log_max_bytes` (default 100 MiB); up to `hit_log_max_backups` old files are kept.
+- **Payload retention cap** — `cleanup_payloads` removes oldest `.bin` files when total payload storage exceeds `payload_log_max_bytes` (default 1 GiB). Metadata `sessions.logl` files are preserved.
+- **Rate-limited firewall logging** — all iptables `LOG` rules use `-m limit` with configurable `log_rate_limit` / `log_rate_burst` to prevent `dmesg`/journal flooding under heavy scans.
+- New module `tsunamiwall/rotation.py` and tests `tests/test_rotation.py`, `tests/test_rate_limited_logging.py`.
+
+### Regression tests
+- `tests/test_signal_cleanup.py` — SIGTERM/request-stop cleanup path.
+- `tests/test_block_bypass.py` — blocked ports cannot be bypassed by allow/per-IP/honeypot rules.
+- `tests/test_build_rules_atomic.py` — atomic shadow-chain swap and rollback on failure.
 
 ## [1.0.0] - 2026-10-14
 
@@ -40,10 +51,7 @@ All notable changes to TsunamiWall are documented in this file.
 
 ### Fixed
 - **Graceful shutdown** — added timeouts to daemon stop, honeypot teardown, and iptables commands; falls back to hard exit after 10 seconds if shutdown hangs.
-- **Signal shutdown cleanup** — SIGTERM/Ctrl+C now route through the same `stop()` cleanup path as the CLI `stop` command, so firewall rules are flushed, state is saved, and the PID file is removed.
 - **Reset against dead daemon** — `reset` now correctly falls back to emergency flush when the daemon socket exists but no process is listening.
-- **Derived run-time paths** — `socket_path` and `pid_path` are now derived from `run_dir` instead of being independent config options. Old configs that still contain them are accepted but ignored.
-- **Global `block` precedence** — a globally `block`ed port now overrides auto-discovered services, explicit `allow` rules, and per-source-IP `allow` rules. Blocked ports are also excluded from the honeypot pool.
 
 ## [1.0.0] - 2026-10-14
 

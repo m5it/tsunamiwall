@@ -93,6 +93,8 @@ def build_rules(
     trusted_ips: Iterable[str] | None = None,
     allowed_per_ip: dict[str, Iterable[int]] | None = None,
     blocked_ports: Iterable[int] | None = None,
+    log_rate_limit: int = 10,
+    log_rate_burst: int = 20,
 ) -> None:
     """Atomically rebuild the TsunamiWall chain using a shadow chain.
 
@@ -153,6 +155,12 @@ def build_rules(
                 "tcp",
                 "--dport",
                 str(port),
+                "-m",
+                "limit",
+                "--limit",
+                f"{log_rate_limit}/second",
+                "--limit-burst",
+                str(log_rate_burst),
                 "-j",
                 "LOG",
                 "--log-prefix",
@@ -168,6 +176,12 @@ def build_rules(
                 "udp",
                 "--dport",
                 str(port),
+                "-m",
+                "limit",
+                "--limit",
+                f"{log_rate_limit}/second",
+                "--limit-burst",
+                str(log_rate_burst),
                 "-j",
                 "LOG",
                 "--log-prefix",
@@ -188,8 +202,23 @@ def build_rules(
         # 7. Honeypot ports (TCP only in v1)
         for port in honeypots:
             run_iptables("-A", shadow, "-p", "tcp", "--dport", str(port), "-j", "ACCEPT")
-        # 8. Default drop with logging
-        run_iptables("-A", shadow, "-j", "LOG", "--log-prefix", "TSUNAMIWALL-DROP: ", "--log-level", "4")
+        # 8. Default drop with logging (rate-limited to avoid flooding dmesg)
+        run_iptables(
+            "-A",
+            shadow,
+            "-m",
+            "limit",
+            "--limit",
+            f"{log_rate_limit}/second",
+            "--limit-burst",
+            str(log_rate_burst),
+            "-j",
+            "LOG",
+            "--log-prefix",
+            "TSUNAMIWALL-DROP: ",
+            "--log-level",
+            "4",
+        )
         run_iptables("-A", shadow, "-j", "DROP")
     except IptablesError:
         logger.exception("Failed to populate shadow chain %s; leaving existing rules in place", shadow)

@@ -40,6 +40,16 @@ class Config:
     payload_read_timeout: float = 2.0
     # Directory under which per-country per-IP payload logs are stored.
     payload_log_dir: str = "/var/log/tsunamiwall/bycountry"
+    # Maximum on-disk size of hits.logl before rotation (bytes).
+    hit_log_max_bytes: int = 100 * 1024 * 1024  # 100 MiB
+    # Number of rotated hit log files to retain.
+    hit_log_max_backups: int = 5
+    # Maximum total bytes to keep in the payload log directory.
+    payload_log_max_bytes: int = 1024 * 1024 * 1024  # 1 GiB
+    # iptables LOG rate limit: average packets per second before bursting.
+    log_rate_limit: int = 10
+    # iptables LOG rate limit: initial burst packets.
+    log_rate_burst: int = 20
 
     def __post_init__(self):
         if not 1 <= self.honeypot_start <= 65535:
@@ -58,6 +68,16 @@ class Config:
             raise ValueError("payload_max_bytes must be positive")
         if self.payload_read_timeout <= 0:
             raise ValueError("payload_read_timeout must be positive")
+        if self.hit_log_max_bytes < 0:
+            raise ValueError("hit_log_max_bytes must be non-negative")
+        if self.hit_log_max_backups < 0:
+            raise ValueError("hit_log_max_backups must be non-negative")
+        if self.payload_log_max_bytes < 0:
+            raise ValueError("payload_log_max_bytes must be non-negative")
+        if self.log_rate_limit < 0:
+            raise ValueError("log_rate_limit must be non-negative")
+        if self.log_rate_burst < 0:
+            raise ValueError("log_rate_burst must be non-negative")
         for ip in self.trusted_ips:
             try:
                 ipaddress.ip_network(ip, strict=False)
