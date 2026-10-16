@@ -75,8 +75,8 @@ def test_find_payload_for_hit(tmp_path):
     log_dir = tmp_path / "logs"
     base = log_dir / "bycountry" / "US" / "1.2.3.4"
     base.mkdir(parents=True)
-    # New payload filenames include source port to disambiguate multiple probes.
-    payload_file = base / "2026-10-13T20-00-00.000000_10005_54321.bin"
+    # New payload filenames use nanosecond timestamp + dst_port + src_port.
+    payload_file = base / "9999999999_10005_54321.bin"
     payload_file.write_bytes(b"hello scanner")
 
     hit = {

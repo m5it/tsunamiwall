@@ -21,11 +21,11 @@ from collections import Counter
 from pathlib import Path
 from typing import Iterable, Iterator
 
-# Add project root to the path so we can import tsunamiwall.config.
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
 
 from tsunamiwall.config import load_config
 
@@ -338,15 +338,28 @@ def _find_payload_for_hit(log_dir: Path, hit: dict) -> Path | None:
         candidates.extend(base.glob(pattern))
     if not candidates:
         return None
-    # Prefer the file whose name starts closest to the hit time, otherwise newest mtime.
+    # Prefer the file whose mtime is closest to the hit time, otherwise newest.
     hit_time = hit.get("time", "")
     candidates.sort(
         key=lambda p: (
-            not hit_time or not p.name.startswith(hit_time.replace(":", "-")[:10]),
-            -p.stat().st_mtime,
+            abs(p.stat().st_mtime - _hit_timestamp(hit_time)),
         )
     )
     return candidates[0]
+
+
+def _hit_timestamp(hit_time: str) -> float:
+    """Best-effort parse of ISO timestamps used in hit logs."""
+    import time
+
+    if not hit_time:
+        return 0.0
+    for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return time.mktime(time.strptime(hit_time[:19], fmt))
+        except ValueError:
+            pass
+    return 0.0
 
 
 def cmd_recent_payloads(args: argparse.Namespace) -> int:

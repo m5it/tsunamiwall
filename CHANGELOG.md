@@ -14,8 +14,9 @@ All notable changes to TsunamiWall are documented in this file.
 
 ### Fixed
 - **Linux startup file-descriptor exhaustion** — honeypot listeners now bind to `0.0.0.0` (IPv4 only) instead of dual-stack. This halves socket usage and prevents `OSError: Too many open files` during firewall rule generation when `max_honeypots` is near the default file-descriptor limit.
-- **Payload file matching in log viewer** — `tsunamiwall-logs recent-payloads` now searches for the exact payload file using `src_port` in addition to `dst_port`, so it no longer confuses multiple probes to the same honeypot port. It also skips the disk lookup when `payload_size` is zero.
-- **Payload write error handling** — the daemon now wraps the payload writer to log `PermissionError` and other exceptions instead of silently dropping captured payloads.
+- **Unique payload filenames** — payload files are now named with a nanosecond-resolution timestamp + destination port + source port so multiple probes from the same IP in the same second never overwrite each other.
+- **Accurate payload matching in log viewer** — `tsunamiwall-logs recent-payloads` now matches files by `dst_port` + `src_port` and picks the file whose mtime is closest to the hit time, instead of guessing by date prefix.
+- **Payload write error handling** — the daemon now logs `PermissionError` and other payload-write exceptions instead of silently dropping captured bytes.
 
 ## [1.1.0] - 2026-10-16
 

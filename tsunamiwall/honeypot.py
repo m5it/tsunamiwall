@@ -187,12 +187,11 @@ def default_payload_writer(cfg: Config) -> Callable[[PayloadSession], None]:
         ip_dir = base_dir / cc / safe_ip
         ip_dir.mkdir(parents=True, exist_ok=True, mode=0o750)
 
-        # Use sub-second timestamp + destination port + source port to avoid
-        # overwriting multiple probes from the same IP to the same port in the
-        # same second.
-        ts = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
-        subsec = int(time.time() * 1_000_000) % 1_000_000
-        filename = f"{ts.replace(':', '-')}.{subsec:06d}_{session.dst_port}_{session.src_port}.bin"
+        # Use a monotonic nanosecond-resolution timestamp + destination port +
+        # source port to guarantee a unique filename even if many probes arrive
+        # from the same source IP/port in the same microsecond.
+        ns = time.time_ns()
+        filename = f"{ns}_{session.dst_port}_{session.src_port}.bin"
         payload_path = ip_dir / filename
         payload_path.write_bytes(session.payload)
 
