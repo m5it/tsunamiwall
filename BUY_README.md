@@ -1,6 +1,6 @@
 :tsunami: # TsunamiWall
 
-Linux server firewall with built-in per-port honeypot listeners.
+Server firewall with built-in per-port honeypot listeners. Runs on Linux (`iptables`/`ip6tables`) and experimentally on macOS (`pfctl`).
 
 ## What it does
 - **Blocks** all unsolicited inbound traffic by default.
@@ -9,9 +9,6 @@ Linux server firewall with built-in per-port honeypot listeners.
 - **Opens stealth honeypot listeners** on unused high ports (`10000-65535`) to catch and record attacker behavior.
 - **Captures attacker payloads** and stores them per country / per IP.
 - Provides a simple CLI, a live TUI, config-file support, and an emergency reset for safety.
-
-## Status
-v1 focuses on TCP/UDP listening socket discovery, `iptables` (IPv4) backend, optional `ip6tables` (IPv6) support, manual CLI, and honeypot threat visibility.
 
 ## Quick start
 
@@ -69,7 +66,7 @@ For an all-in-one start, use the included `start.sh` script. It starts the daemo
 | `deny <port> --ip <IP/CIDR>` | Remove a per-source-IP allowed port |
 | `block <port>` / `block --file <path>` | Block a port (drop traffic even if a service listens) |
 | `unblock <port>` / `unblock --file <path>` | Remove a blocked port |
-| `reset` | Emergency stop + flush all TsunamiWall `iptables` (and `ip6tables` if enabled) rules |
+| `reset` | Emergency stop + flush all TsunamiWall firewall rules |
 
 ## Configuration file
 
@@ -80,7 +77,7 @@ TsunamiWall reads YAML configuration from (in order):
 3. `/etc/tsunamiwall/config.yaml`
 4. `~/.config/tsunamiwall/config.yaml`
 
-Key options include `trusted_ips`, `auto_block_listeners`, `honeypot_start`/`honeypot_end`, `max_honeypots`, payload capture settings, log rotation settings, and `enable_ipv6` for dual-stack hosts.
+Key options include `trusted_ips`, `auto_block_listeners`, `honeypot_start`/`honeypot_end`, `max_honeypots`, payload capture settings, log rotation settings, `enable_ipv6` for dual-stack hosts, and `firewall_backend`/`pfctl_anchor` for cross-platform support.
 
 > **Note on `auto_block_listeners`:** the default is `false`, which means TsunamiWall automatically allows every listening socket it discovers. This is convenient for setup but not a strict default-deny policy. Set it to `true` after adding your management IP to `trusted_ips` for a real default-deny posture.
 
@@ -91,18 +88,18 @@ Key options include `trusted_ips`, `auto_block_listeners`, `honeypot_start`/`hon
 |  CLI/TUI |  ---------------------->|  tsunamiwall daemon  |
 +----------+                         |  - discovery loop    |
                                      |  - honeypot servers  |
-                                     |  - iptables backend  |
+                                     |  - firewall backend  |
                                      +----------+-----------+
                                                 |
                                                 v
                                      +----------+-----------+
-                                     |      iptables        |
-                                     |  TSUNAMIWALL chain   |
+                                     |  iptables / pfctl  |
+                                     |  TSUNAMIWALL chain |
                                      +----------------------+
 ```
 
 - **Daemon**: `asyncio`-based, watches listening sockets, manages honeypot listeners.
-- **Firewall backend**: `iptables` (IPv4) via a dedicated `TSUNAMIWALL` chain, with optional `ip6tables` (IPv6) support when `enable_ipv6: true`.
+- **Firewall backend**: pluggable `iptables`/`ip6tables` on Linux or `pfctl` anchors on macOS, configured with `firewall_backend`. Default is `auto`.
 - **CLI/TUI**: Unix-socket client talking to the daemon.
 - **Payload logging**: captured data is written to `/var/log/tsunamiwall/bycountry/{CC}/{IP}/`.
 - **Log viewer script**: `scripts/tsunamiwall-logs` makes it easy to inspect hits and payloads.
