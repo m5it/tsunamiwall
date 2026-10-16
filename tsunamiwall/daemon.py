@@ -40,7 +40,7 @@ class Daemon:
         self._cleanup_done = asyncio.Event()
         self._server: asyncio.Server | None = None
         self._hit_log_fh = self._open_hit_log()
-        self._payload_callback = default_payload_writer(self.cfg)
+        self._payload_writer = default_payload_writer(self.cfg)
         self._firewall = get_backend(self.cfg, family="ipv4")
         self._firewall_ipv6 = get_backend(self.cfg, family="ipv6") if self.cfg.enable_ipv6 else None
         self._load_state()
@@ -59,6 +59,32 @@ class Daemon:
         self._hit_log_fh.write(line + "\n")
         self._hit_log_fh.flush()
         logger.info("Honeypot hit: %s", line)
+
+    def _payload_callback(self, session) -> None:
+        """Write a captured payload to disk and rotate payload storage."""
+        try:
+            self._payload_writer(session)
+        except PermissionError as exc:
+            logger.warning(
+                "Cannot write payload for %s:%d to %s: %s",
+                session.src_ip,
+                session.src_port,
+                self.cfg.payload_log_dir,
+                exc,
+            )
+        except Exception:
+            logger.exception(
+                "Payload write failed for %s:%d",
+                session.src_ip,
+                session.src_port,
+            )
+        try:
+            cleanup_payloads(
+                self.cfg.payload_log_dir,
+                self.cfg.payload_log_max_bytes,
+            )
+        except Exception:
+            logger.exception("Payload retention cleanup failed")
 
     async def start(self) -> None:
         os.makedirs(self.cfg.run_dir, exist_ok=True, mode=0o750)

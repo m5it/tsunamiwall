@@ -170,14 +170,26 @@ def default_payload_writer(cfg: Config) -> Callable[[PayloadSession], None]:
         if not session.payload:
             return
 
+        try:
+            base_dir.mkdir(parents=True, exist_ok=True, mode=0o750)
+        except PermissionError:
+            # The daemon may not own payload_log_dir if the directory was created
+            # by a different user; skip silently rather than crashing the honeypot.
+            logger.warning(
+                "Cannot create payload directory %s: permission denied. Payloads will not be saved.",
+                base_dir,
+            )
+            return
+
         cc = country_code(session.src_ip)
         session.country = cc
         safe_ip = sanitize_ip(session.src_ip)
         ip_dir = base_dir / cc / safe_ip
         ip_dir.mkdir(parents=True, exist_ok=True, mode=0o750)
 
-        # Use sub-second timestamp + destination port to avoid overwriting
-        # multiple probes from the same IP to the same port in the same second.
+        # Use sub-second timestamp + destination port + source port to avoid
+        # overwriting multiple probes from the same IP to the same port in the
+        # same second.
         ts = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
         subsec = int(time.time() * 1_000_000) % 1_000_000
         filename = f"{ts.replace(':', '-')}.{subsec:06d}_{session.dst_port}_{session.src_port}.bin"

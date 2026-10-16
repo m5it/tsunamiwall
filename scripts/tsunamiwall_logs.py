@@ -315,10 +315,14 @@ def cmd_stats(args: argparse.Namespace) -> int:
 
 
 def _find_payload_for_hit(log_dir: Path, hit: dict) -> Path | None:
-    """Find the newest payload file matching a hit's src_ip + dst_port."""
+    """Find the payload file matching a hit's src_ip/src_port/dst_port."""
     src_ip = hit.get("src_ip", "?")
+    src_port = hit.get("src_port")
     dst_port = hit.get("dst_port")
-    if not src_ip or dst_port is None:
+    if not src_ip or src_port is None or dst_port is None:
+        return None
+    # If the hit says no payload was captured, there is no file to find.
+    if hit.get("payload_size", 0) == 0:
         return None
     base = log_dir / "bycountry"
     if not base.exists():
@@ -327,7 +331,10 @@ def _find_payload_for_hit(log_dir: Path, hit: dict) -> Path | None:
     # Country code may be UNKNOWN; search all countries as fallback.
     cc = hit.get("country_code", "*") or "*"
     candidates: list[Path] = []
-    for pattern in (f"{cc}/{src_ip}/*_{dst_port}.bin", f"*/{src_ip}/*_{dst_port}.bin"):
+    for pattern in (
+        f"{cc}/{src_ip}/*_{dst_port}_{src_port}.bin",
+        f"*/{src_ip}/*_{dst_port}_{src_port}.bin",
+    ):
         candidates.extend(base.glob(pattern))
     if not candidates:
         return None

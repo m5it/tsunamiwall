@@ -75,16 +75,30 @@ def test_find_payload_for_hit(tmp_path):
     log_dir = tmp_path / "logs"
     base = log_dir / "bycountry" / "US" / "1.2.3.4"
     base.mkdir(parents=True)
-    payload_file = base / "2026-10-13T20-00-00_10005.bin"
+    # New payload filenames include source port to disambiguate multiple probes.
+    payload_file = base / "2026-10-13T20-00-00.000000_10005_54321.bin"
     payload_file.write_bytes(b"hello scanner")
 
     hit = {
         "time": "2026-10-13T20:00:00Z",
         "src_ip": "1.2.3.4",
+        "src_port": 54321,
         "dst_port": 10005,
         "country_code": "US",
+        "payload_size": 13,
     }
     assert _find_payload_for_hit(log_dir, hit) == payload_file
+
+    # Hits with no captured payload return None without scanning disk.
+    no_payload_hit = {
+        "time": "2026-10-13T20:00:01Z",
+        "src_ip": "1.2.3.4",
+        "src_port": 54322,
+        "dst_port": 10005,
+        "country_code": "US",
+        "payload_size": 0,
+    }
+    assert _find_payload_for_hit(log_dir, no_payload_hit) is None
 
     # Missing port returns None.
     assert _find_payload_for_hit(log_dir, {"src_ip": "1.2.3.4"}) is None
