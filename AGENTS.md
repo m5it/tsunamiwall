@@ -3,7 +3,7 @@
 This file is the canonical project context for coding agents. If you pick up this project, read this first, then `DESIGN.md` and `docs/development.md`.
 
 ## Project goal
-Build a Linux server firewall with three jobs:
+Build a server firewall with three jobs:
 1. Block all unwanted inbound traffic.
 2. Run stealth honeypot listeners on unused high ports to log what attackers/scanners are probing.
 3. Support per-source-IP port rules for fine-grained access.
@@ -13,7 +13,7 @@ Active development. Core daemon runs on real servers, manages iptables, opens ho
 
 ## v1 scope
 - Target environment: servers.
-- Packet filter backend: `iptables` (IPv4) with optional `ip6tables` support for dual-stack hosts.
+- Packet filter backend: pluggable; `iptables` (IPv4) / `ip6tables` (IPv6) on Linux, `pfctl` anchors on macOS, plus a `noop` backend for testing.
 - Service discovery: listening sockets only (read from `/proc/net/tcp`, `/proc/net/udp`, `ss`, and `psutil` if available).
 - Management interface: manual CLI plus live TUI.
 - Honeypot scope: ports `10000-65535`, excluding ports already used by real services.
@@ -52,6 +52,7 @@ Active development. Core daemon runs on real servers, manages iptables, opens ho
 - `tsunamiwall/geoip.py` — offline country-code lookup (`iptocc`, optional).
 - `tsunamiwall/iptables.py` — safe wrapper around `iptables` with timeouts.
 - `tsunamiwall/ip6tables.py` — safe wrapper around `ip6tables` for IPv6 support.
+- `tsunamiwall/firewall.py` — pluggable firewall backend abstraction (`iptables`, `ip6tables`, `pfctl`, `noop`).
 - `tsunamiwall/honeypot.py` — asyncio honeypot listener per port, payload capture.
 - `tsunamiwall/daemon.py` — main asyncio daemon.
 - `tsunamiwall/cli.py` — CLI client talking to the daemon via Unix socket; supports global and per-source-IP allow/deny.
@@ -63,15 +64,17 @@ Active development. Core daemon runs on real servers, manages iptables, opens ho
 - `sudo` does **not** see the user's `.venv`. Always run with the absolute venv path or use `run.sh` / `run-dev.sh`.
 - The daemon must run as root (iptables + low port binding not needed, but raw sockets and log dirs do).
 - Ctrl+C / SIGTERM now route through the same `stop()` cleanup path as the CLI `stop` command, flushing rules, saving state, and removing the PID file. The daemon still has a 10-second graceful shutdown with hard `_exit()` fallback.
-- `reset` first tries to talk to the daemon; if the socket is dead it falls back to direct iptables flush.
+- `reset` first tries to talk to the daemon; if the socket is dead it falls back to the configured firewall backend.
 - `daemon.sock` and `daemon.pid` are derived from `run_dir`; do not set `socket_path` or `pid_path` independently.
-- All TsunamiWall rules live in a dedicated `TSUNAMIWALL` chain jumped from `INPUT`. Do not modify pre-existing rules.
+- All TsunamiWall rules live in a dedicated `TSUNAMIWALL` chain jumped from `INPUT` (Linux) or in the configured `pfctl` anchor (macOS). Do not modify pre-existing rules.
 - Do not bind honeypots to ports below 10000 to avoid stealing system services.
 - The daemon must detect new real services and immediately release conflicting honeypots.
 - Runtime allow/block/deny state is persisted to `<run_dir>/daemon-state.json` and restored on startup.
 - `auto_block_listeners: true` switches the daemon to strict default-deny: discovered listening sockets are not automatically allowed. The default is `false`, meaning every discovered listener is automatically allowed; this is convenient but not a strict default-deny policy.
 - A globally `block`ed port overrides `allow`, per-source-IP `allow`, auto-discovered services, and honeypot selection. `trusted_ips` still bypass the block.
 - Set `enable_ipv6: true` in config to also manage an `ip6tables` chain. By default only IPv4 is protected; IPv6 traffic is left untouched. Honeypots bind to all addresses when IPv6 is enabled, otherwise only IPv4.
+- Set `firewall_backend: "pfctl"` on macOS to use `pfctl` anchors. The base anchor (default `tsunamiwall`) must be referenced in `/etc/pf.conf` by the user; TsunamiWall only manages the sub-anchor contents.
+- Service discovery falls back to `psutil` when `/proc/net/tcp` and `/proc/net/udp` are unavailable (e.g. macOS).
 
 ## Running locally
 ```bash
@@ -94,8 +97,8 @@ sudo .venv/bin/python main.py -c /etc/tsunamiwall/config.yaml start
 
 ## Coding rules
 - Keep changes minimal and focused.
-- All iptables interactions go through `tsunamiwall/iptables.py`; IPv6 goes through `tsunamiwall/ip6tables.py`.
+- All firewall interactions go through `tsunamiwall/firewall.py`. Low-level `iptables` helpers live in `tsunamiwall/iptables.py` and `tsunamiwall/ip6tables.py`; `pfctl` logic lives in the `PfctlBackend` class.
 - All new config keys go into `tsunamiwall/config.py` and `config/example-config.yaml`.
 - Prefer `asyncio` for network-facing code.
-- Never mutate pre-existing iptables rules outside the `TSUNAMIWALL` chain.
+- Never mutate pre-existing firewall rules outside the TsunamiWall-managed chain or anchor.
 - Update `CHANGELOG.md`, `README.md`, and this file when adding user-facing features or changing run behavior.

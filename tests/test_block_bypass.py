@@ -46,7 +46,7 @@ def test_blocked_port_drop_precedes_accepts(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_blocked_discovered_service_not_allowed(monkeypatch, tmp_path):
+async def test_blocked_discovered_service_not_allowed(monkeypatch, tmp_path, fake_firewall):
     """A listening service on a blocked port must not be auto-allowed globally."""
     cfg = Config(
         run_dir=str(tmp_path / "run"),
@@ -55,13 +55,6 @@ async def test_blocked_discovered_service_not_allowed(monkeypatch, tmp_path):
         max_honeypots=0,
     )
 
-    captured = {"allowed": set(), "honeypots": set()}
-
-    def fake_build_rules(chain, allowed, honeypots, **kwargs):
-        captured["allowed"] = set(allowed)
-        captured["honeypots"] = set(honeypots)
-
-    monkeypatch.setattr("tsunamiwall.daemon.build_rules", fake_build_rules)
     monkeypatch.setattr("tsunamiwall.daemon.discover_ports", lambda **kwargs: {22, 8080})
     monkeypatch.setattr("tsunamiwall.daemon.safe_ports", lambda used, cfg: set())
 
@@ -70,12 +63,15 @@ async def test_blocked_discovered_service_not_allowed(monkeypatch, tmp_path):
 
     await daemon._reconcile()
 
-    assert 22 in captured["allowed"], "unblocked listening service should be auto-allowed"
-    assert 8080 not in captured["allowed"], "blocked listening service must not be auto-allowed"
+    build_calls = [c for c in fake_firewall if c[0] == "build" and c[1] == "ipv4"]
+    assert build_calls, "IPv4 rules should have been built"
+    allowed = build_calls[-1][3]
+    assert 22 in allowed, "unblocked listening service should be auto-allowed"
+    assert 8080 not in allowed, "blocked listening service must not be auto-allowed"
 
 
 @pytest.mark.asyncio
-async def test_blocked_port_not_a_honeypot(monkeypatch, tmp_path):
+async def test_blocked_port_not_a_honeypot(monkeypatch, tmp_path, fake_firewall):
     """A blocked port must not be picked up as a honeypot listener."""
     cfg = Config(
         run_dir=str(tmp_path / "run"),
@@ -86,15 +82,9 @@ async def test_blocked_port_not_a_honeypot(monkeypatch, tmp_path):
         max_honeypots=3,
     )
 
-    captured = {"honeypots": set()}
-
-    def fake_build_rules(chain, allowed, honeypots, **kwargs):
-        captured["honeypots"] = set(honeypots)
-
     async def fake_hp_start(self):
         return None
 
-    monkeypatch.setattr("tsunamiwall.daemon.build_rules", fake_build_rules)
     monkeypatch.setattr("tsunamiwall.daemon.discover_ports", lambda **kwargs: set())
     monkeypatch.setattr(HoneypotServer, "start", fake_hp_start)
 
@@ -103,13 +93,15 @@ async def test_blocked_port_not_a_honeypot(monkeypatch, tmp_path):
 
     await daemon._reconcile()
 
-    assert 10000 not in captured["honeypots"], "blocked port must not become a honeypot"
-    assert 10001 not in captured["honeypots"], "blocked port must not become a honeypot"
-    assert 10002 in captured["honeypots"], "unblocked available port should become a honeypot"
+    build_calls = [c for c in fake_firewall if c[0] == "build" and c[1] == "ipv4"]
+    honeypots = build_calls[-1][4]
+    assert 10000 not in honeypots, "blocked port must not become a honeypot"
+    assert 10001 not in honeypots, "blocked port must not become a honeypot"
+    assert 10002 in honeypots, "unblocked available port should become a honeypot"
 
 
 @pytest.mark.asyncio
-async def test_blocked_per_ip_port_suppressed(monkeypatch, tmp_path):
+async def test_blocked_per_ip_port_suppressed(monkeypatch, tmp_path, fake_firewall):
     """A per-IP allow rule is suppressed when the same port is globally blocked."""
     cfg = Config(
         run_dir=str(tmp_path / "run"),
@@ -118,14 +110,6 @@ async def test_blocked_per_ip_port_suppressed(monkeypatch, tmp_path):
         max_honeypots=0,
     )
 
-    captured = {"allowed": set(), "per_ip": None, "honeypots": set()}
-
-    def fake_build_rules(chain, allowed, honeypots, allowed_per_ip=None, **kwargs):
-        captured["allowed"] = set(allowed)
-        captured["honeypots"] = set(honeypots)
-        captured["per_ip"] = allowed_per_ip
-
-    monkeypatch.setattr("tsunamiwall.daemon.build_rules", fake_build_rules)
     monkeypatch.setattr("tsunamiwall.daemon.discover_ports", lambda **kwargs: set())
     monkeypatch.setattr("tsunamiwall.daemon.safe_ports", lambda used, cfg: set())
 
@@ -135,8 +119,10 @@ async def test_blocked_per_ip_port_suppressed(monkeypatch, tmp_path):
 
     await daemon._reconcile()
 
-    assert 8080 not in captured["allowed"], "blocked port must not be globally allowed"
-    assert captured["per_ip"].get("192.168.1.5", set()) == {8443}, "blocked port must be removed from per-IP allow"
+    build_calls = [c for c in fake_firewall if c[0] == "build" and c[1] == "ipv4"]
+    allowed, per_ip = build_calls[-1][3], build_calls[-1][6]
+    assert 8080 not in allowed, "blocked port must not be globally allowed"
+    assert per_ip.get("192.168.1.5", set()) == {8443}, "blocked port must be removed from per-IP allow"
 
 
 def test_build_rules_blocked_per_ip_not_emitted(monkeypatch):

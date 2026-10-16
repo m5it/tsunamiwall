@@ -1,7 +1,7 @@
 # TsunamiWall Design Document
 
 ## Overview
-TsunamiWall is a Linux server firewall that combines strict default-deny packet filtering with per-port honeypot listeners for threat visibility.
+TsunamiWall is a server firewall that combines strict default-deny packet filtering with per-port honeypot listeners for threat visibility. It runs primarily on Linux (`iptables`/`ip6tables`) and experimentally on macOS (`pfctl`).
 
 ## Terminology
 - **Real service**: a process currently listening on a TCP or UDP port that the administrator wants to keep reachable.
@@ -27,10 +27,10 @@ TsunamiWall is a Linux server firewall that combines strict default-deny packet 
 11. Graceful shutdown with timeouts and hard-exit fallback to avoid hanging on Ctrl+C.
 
 ## Data flow
-1. On `start`, discovery scans `/proc/net/tcp` and `/proc/net/udp`.
-2. iptables rules are written to chain `TSUNAMIWALL`.
+1. On `start`, discovery scans `/proc/net/tcp` and `/proc/net/udp` on Linux, or falls back to `psutil` on macOS / when `/proc/net` is unavailable.
+2. Firewall rules are written via the configured backend: `iptables`/`ip6tables` on Linux, or `pfctl` anchors on macOS.
 3. Honeypot coroutines bind to free ports in the configured range.
-4. Every 30 seconds the daemon re-discovers sockets; if a real service appears on a honeypot port, the honeypot is released and iptables updated.
+4. Every 30 seconds the daemon re-discovers sockets; if a real service appears on a honeypot port, the honeypot is released and firewall rules updated.
 5. CLI commands sent over a Unix socket are handled by the daemon.
 6. On a honeypot hit the daemon logs a JSONL hit line, reads an optional payload, resolves the country code, and writes the payload to `bycountry/{CC}/{IP}/{timestamp}_{dst_port}.bin` plus a `sessions.logl` metadata file.
 
@@ -65,6 +65,8 @@ Key values:
 - `honeypot_end = 65535`
 - `discovery_interval = 30` seconds
 - `iptables_chain = "TSUNAMIWALL"`
+- `firewall_backend = "auto"` — `iptables` on Linux, `pfctl` on macOS, or `noop`
+- `pfctl_anchor = "tsunamiwall"` — base `pfctl` anchor on macOS
 - `log_dir = "/var/log/tsunamiwall"`
 - `run_dir = "/run/tsunamiwall"` — `daemon.sock` and `daemon.pid` are derived from this directory
 - `max_honeypots = 900`

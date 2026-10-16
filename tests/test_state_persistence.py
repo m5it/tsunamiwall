@@ -5,7 +5,7 @@ from tsunamiwall.config import Config
 from tsunamiwall.daemon import Daemon
 
 
-def test_daemon_loads_saved_state(tmp_path, monkeypatch):
+def test_daemon_loads_saved_state(tmp_path, monkeypatch, fake_firewall):
     state_file = tmp_path / "daemon-state.json"
     state_file.write_text(
         json.dumps(
@@ -27,7 +27,6 @@ def test_daemon_loads_saved_state(tmp_path, monkeypatch):
     )
 
     # Avoid touching iptables or real sockets in the test.
-    monkeypatch.setattr("tsunamiwall.daemon.build_rules", lambda *args, **kwargs: None)
     monkeypatch.setattr("tsunamiwall.daemon.discover_ports", lambda **kwargs: set())
 
     daemon = Daemon(cfg)
@@ -37,14 +36,13 @@ def test_daemon_loads_saved_state(tmp_path, monkeypatch):
     assert daemon.allowed_per_ip["198.51.100.45"] == {1234, 5678}
 
 
-def test_daemon_saves_state_after_reconcile(tmp_path, monkeypatch):
+def test_daemon_saves_state_after_reconcile(tmp_path, monkeypatch, fake_firewall):
     cfg = Config(
         run_dir=str(tmp_path),
         log_dir=str(tmp_path / "logs"),
         payload_log_dir=str(tmp_path / "payloads"),
     )
 
-    monkeypatch.setattr("tsunamiwall.daemon.build_rules", lambda *args, **kwargs: None)
     monkeypatch.setattr("tsunamiwall.daemon.discover_ports", lambda **kwargs: set())
 
     daemon = Daemon(cfg)

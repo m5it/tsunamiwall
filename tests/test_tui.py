@@ -20,7 +20,24 @@ def test_parse_hit_line_valid():
         src_ip="220.249.82.190",
         src_port=61000,
         dst_port=10348,
+        family="ipv4",
     )
+
+
+def test_parse_hit_line_ipv6():
+    line = json.dumps(
+        {
+            "time": "2026-10-11T22:48:41Z",
+            "src_ip": "2001:db8::1",
+            "src_port": 61000,
+            "dst_port": 10348,
+            "family": "ipv6",
+            "proto": "tcp",
+            "action": "honeypot_hit",
+        }
+    )
+    hit = parse_hit_line(line)
+    assert hit.family == "ipv6"
 
 
 def test_parse_hit_line_ignores_non_hit():

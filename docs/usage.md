@@ -1,9 +1,10 @@
 # TsunamiWall Usage
 
 ## Requirements
-- Linux server with Python 3.10+
-- root privileges (for iptables and raw socket binding)
-- `iptables` installed
+- Linux server with Python 3.10+ (primary platform)
+- macOS with `pfctl` (experimental, v1.2.0+)
+- root privileges (for iptables/pfctl and raw socket binding)
+- `iptables` installed (Linux) or `pfctl` enabled (macOS)
 
 ## Installation
 
@@ -134,6 +135,27 @@ Honeypots will then listen on both IPv4 and IPv6. Verify the IPv6 chain with:
 sudo ip6tables -L TSUNAMIWALL6 -n
 ```
 
+### macOS / pfctl support (experimental)
+TsunamiWall can drive the native macOS packet filter through `pfctl` anchors. Select the backend explicitly:
+```yaml
+firewall_backend: "pfctl"
+pfctl_anchor: "tsunamiwall"
+```
+Before starting the daemon you must reference the base anchor in `/etc/pf.conf` once:
+```
+anchor "tsunamiwall/*"
+```
+Then load the main ruleset:
+```bash
+sudo pfctl -f /etc/pf.conf
+```
+TsunamiWall only manages the contents of the `tsunamiwall/ipv4` and `tsunamiwall/ipv6` sub-anchors; it will not edit `/etc/pf.conf` automatically.
+
+`pfctl` logs blocked packets to the `pflog0` interface, not `dmesg`. On macOS inspect blocked traffic with:
+```bash
+sudo tcpdump -ni pflog0
+```
+
 ### Log and payload rotation
 To control disk growth under heavy scans, tune these config keys:
 ```yaml
@@ -228,13 +250,13 @@ sudo .venv/bin/python tsunamiwall/emergency.py
 ```
 
 ## How it works
-1. The daemon scans `/proc/net/tcp` and `/proc/net/udp` every 30 seconds.
-2. By default, any port with a listening socket is allowed through iptables.
+1. The daemon scans listening sockets every 30 seconds. On Linux it reads `/proc/net/tcp` and `/proc/net/udp`; on macOS (or when `/proc/net` is unavailable) it falls back to `psutil`.
+2. By default, any port with a listening socket is allowed through the firewall.
 3. With `auto_block_listeners: true`, listening sockets are **not** auto-allowed; only explicitly `allow`ed ports are opened.
 4. Ports `10000-65535` that are not listening (or not in use in strict mode) are bound by silent asyncio honeypot servers.
 5. Ports added via `block` are dropped and logged even if a service listens on them.
 6. Each probe to a honeypot port is logged as JSON to `/var/log/tsunamiwall/hits.logl`.
-7. Everything else is dropped and logged by iptables.
+7. Everything else is dropped and logged by the configured firewall backend (`iptables` on Linux, `pfctl` on macOS).
 
 ## Configuration file
 
@@ -262,6 +284,8 @@ Key tunables:
 - `discovery_interval` — how often to re-scan sockets.
 - `trusted_ips` — IPs/CIDRs that bypass all filtering. Put your management IP here.
 - `auto_block_listeners` — strict default-deny mode; listening sockets are not auto-allowed.
+- `firewall_backend` — `auto`, `iptables`, `pfctl`, or `noop`.
+- `pfctl_anchor` — base anchor name for the macOS `pfctl` backend.
 - Runtime `allow`/`deny`/`block` state is persisted to `<run_dir>/daemon-state.json`.
 
 ## Using a custom config with the CLI

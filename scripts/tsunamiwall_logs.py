@@ -114,9 +114,13 @@ def _iter_hits(log_dir: Path) -> Iterator[dict]:
                 continue
 
 
+
+
+
 def _format_hit(obj: dict) -> str:
     return (
         f"{obj.get('time', '?'):26} "
+        f"{obj.get('family', 'ipv4'):6} "
         f"{obj.get('src_ip', '?'):20} "
         f"country={obj.get('country_code', '?'):4} "
         f"src_port={obj.get('src_port', 0):6} "
@@ -129,7 +133,7 @@ def _print_hits(hits: list[dict]) -> None:
     if not hits:
         print("No hits.")
         return
-    print(f"{'TIME':26} {'SRC IP':20} {'CC':4} {'SPORT':6} {'DPORT':6} {'SIZE':5}")
+    print(f"{'TIME':26} {'FAMILY':6} {'SRC IP':20} {'CC':4} {'SPORT':6} {'DPORT':6} {'SIZE':5}")
     print("-" * 80)
     for obj in hits:
         print(_format_hit(obj))

@@ -85,17 +85,24 @@ def _read_proc_net(path: str, proto: str) -> Iterable[Listener]:
 def discover_listeners(
     *, include_tcp: bool = True, include_udp: bool = True, include_ipv6: bool = False
 ) -> set[Listener]:
-    """Return a set of listening sockets found in /proc/net.
+    """Return a set of listening sockets found in /proc/net or via psutil.
 
-    IPv4 is parsed directly from /proc/net/tcp and /proc/net/udp. IPv6
-    discovery defaults to off because the kernel represents IPv6 addresses
-    as little-endian 128-bit words; use psutil for reliable IPv6 parsing.
+    On Linux, IPv4 is parsed directly from /proc/net/tcp and /proc/net/udp.
+    On macOS (or when /proc/net is unavailable), psutil is used instead.
+    IPv6 discovery defaults to off and requires psutil.
     """
     listeners: set[Listener] = set()
-    if include_tcp:
-        listeners.update(_read_proc_net("/proc/net/tcp", "tcp"))
-    if include_udp:
-        listeners.update(_read_proc_net("/proc/net/udp", "udp"))
+    proc_net_available = os.path.exists("/proc/net/tcp")
+
+    if proc_net_available:
+        if include_tcp:
+            listeners.update(_read_proc_net("/proc/net/tcp", "tcp"))
+        if include_udp:
+            listeners.update(_read_proc_net("/proc/net/udp", "udp"))
+    else:
+        # macOS and other non-Linux platforms: rely on psutil.
+        listeners.update(discover_with_psutil())
+
     if include_ipv6:
         listeners.update(discover_with_psutil_ipv6())
     return listeners
@@ -127,18 +134,25 @@ def has_ipv6_listener(port: int) -> bool:
 
 # Optional psutil-based discovery for environments where /proc/net parsing is
 # insufficient or unavailable.
-def discover_with_psutil() -> set[int]:
-    """Return listening ports using psutil, if installed."""
+def discover_with_psutil() -> set[Listener]:
+    """Return listening IPv4 sockets using psutil, if installed."""
     try:
         import psutil
     except ImportError:
         return set()
-    ports: set[int] = set()
+    listeners: set[Listener] = set()
     for conn in psutil.net_connections(kind="inet"):
         if conn.status == psutil.CONN_LISTEN:
             if conn.laddr:
-                ports.add(conn.laddr.port)
-    return ports
+                proto = "tcp" if conn.type.name == "SOCK_STREAM" else "udp"
+                listeners.add(
+                    Listener(
+                        proto=proto,
+                        port=conn.laddr.port,
+                        local_ip=conn.laddr.ip,
+                    )
+                )
+    return listeners
 
 
 def discover_with_psutil_ipv6() -> set[Listener]:
@@ -151,5 +165,6 @@ def discover_with_psutil_ipv6() -> set[Listener]:
     for conn in psutil.net_connections(kind="inet6"):
         if conn.status == psutil.CONN_LISTEN:
             if conn.laddr:
-                listeners.add(Listener(proto=conn.type.name.lower(), port=conn.laddr.port, local_ip=conn.laddr.ip))
+                proto = "tcp" if conn.type.name == "SOCK_STREAM" else "udp"
+                listeners.add(Listener(proto=proto, port=conn.laddr.port, local_ip=conn.laddr.ip))
     return listeners

@@ -56,6 +56,14 @@ class Config:
     # When true, also manage an IPv6 chain with ip6tables. This protects dual-
     # stack hosts. IPv6 honeypots listen on the same TCP ports as IPv4.
     enable_ipv6: bool = False
+    # Firewall backend to use. "auto" selects iptables on Linux and pfctl on
+    # macOS. Other values: "iptables" (Linux IPv4/IPv6), "ip6tables" (Linux
+    # IPv6 only), "pfctl" (macOS), "noop" (no firewall rules; useful for
+    # testing or unsupported platforms).
+    firewall_backend: str = "auto"
+    # Base pfctl anchor name used when firewall_backend is "pfctl" or auto on
+    # macOS. The daemon uses sub-anchors <pfctl_anchor>/ipv4 and <pfctl_anchor>/ipv6.
+    pfctl_anchor: str = "tsunamiwall"
 
     def __post_init__(self):
         if not 1 <= self.honeypot_start <= 65535:
@@ -84,6 +92,10 @@ class Config:
             raise ValueError("log_rate_limit must be non-negative")
         if self.log_rate_burst < 0:
             raise ValueError("log_rate_burst must be non-negative")
+        if self.firewall_backend not in {"auto", "iptables", "ip6tables", "pfctl", "noop"}:
+            raise ValueError("firewall_backend must be one of: auto, iptables, ip6tables, pfctl, noop")
+        if not self.pfctl_anchor:
+            raise ValueError("pfctl_anchor must not be empty")
         for ip in self.trusted_ips:
             try:
                 ipaddress.ip_network(ip, strict=False)

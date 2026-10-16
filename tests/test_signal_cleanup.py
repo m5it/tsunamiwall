@@ -8,7 +8,7 @@ from tsunamiwall.daemon import Daemon
 
 
 @pytest.mark.asyncio
-async def test_request_stop_runs_cleanup(monkeypatch, tmp_path):
+async def test_request_stop_runs_cleanup(monkeypatch, tmp_path, fake_firewall):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     log_dir = tmp_path / "logs"
@@ -23,9 +23,7 @@ async def test_request_stop_runs_cleanup(monkeypatch, tmp_path):
         max_honeypots=0,
     )
 
-    monkeypatch.setattr("tsunamiwall.daemon.build_rules", lambda *args, **kwargs: None)
     monkeypatch.setattr("tsunamiwall.daemon.discover_ports", lambda **kwargs: set())
-    monkeypatch.setattr("tsunamiwall.daemon.reset", lambda chain: None)
 
     daemon = Daemon(cfg)
     daemon.allowed_ports = {8080}

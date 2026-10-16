@@ -14,14 +14,13 @@ from typing import Any
 
 from .config import Config, default_config, safe_ports
 from .discovery import discover_ports
+from .firewall import get_backend
 from .honeypot import (
     HitEvent,
     HoneypotServer,
     default_payload_writer,
     jsonl_formatter,
 )
-from .ip6tables import build_rules as build_rules_ipv6, reset as reset_ipv6
-from .iptables import build_rules, reset
 from .rotation import cleanup_payloads, rotate_hit_log
 
 logger = logging.getLogger("tsunamiwall.daemon")
@@ -42,6 +41,8 @@ class Daemon:
         self._server: asyncio.Server | None = None
         self._hit_log_fh = self._open_hit_log()
         self._payload_callback = default_payload_writer(self.cfg)
+        self._firewall = get_backend(self.cfg, family="ipv4")
+        self._firewall_ipv6 = get_backend(self.cfg, family="ipv6") if self.cfg.enable_ipv6 else None
         self._load_state()
 
     def _open_hit_log(self):
@@ -195,10 +196,10 @@ class Daemon:
                 pass
             self._save_state()
             self._remove_pid()
-            reset(self.cfg.iptables_chain)
-            if self.cfg.enable_ipv6:
+            self._firewall.reset(self.cfg.iptables_chain, family="ipv4")
+            if self._firewall_ipv6 is not None:
                 try:
-                    reset_ipv6(self.cfg.ipv6_chain)
+                    self._firewall_ipv6.reset(self.cfg.ipv6_chain, family="ipv6")
                 except Exception:
                     logger.exception("IPv6 reset during stop failed")
             logger.info("TsunamiWall daemon stopped")
@@ -282,7 +283,7 @@ class Daemon:
             for ip, ports in self.allowed_per_ip.items()
             if ports - blocked
         }
-        build_rules(
+        self._firewall.build_rules(
             self.cfg.iptables_chain,
             managed_allowed,
             honeypot_ports,
@@ -291,12 +292,13 @@ class Daemon:
             blocked_ports=self.blocked_ports,
             log_rate_limit=self.cfg.log_rate_limit,
             log_rate_burst=self.cfg.log_rate_burst,
+            family="ipv4",
         )
 
         # IPv6 chain mirrors IPv4 policy when enabled.
-        if self.cfg.enable_ipv6:
+        if self._firewall_ipv6 is not None:
             try:
-                build_rules_ipv6(
+                self._firewall_ipv6.build_rules(
                     self.cfg.ipv6_chain,
                     managed_allowed,
                     honeypot_ports,
@@ -305,6 +307,7 @@ class Daemon:
                     blocked_ports=self.blocked_ports,
                     log_rate_limit=self.cfg.log_rate_limit,
                     log_rate_burst=self.cfg.log_rate_burst,
+                    family="ipv6",
                 )
             except Exception:
                 logger.exception("IPv6 rule build failed")
@@ -440,6 +443,22 @@ class Daemon:
         return {"ok": False, "error": "unknown action"}
 
 
+def _raise_fd_limit(minimum: int) -> None:
+    """Raise the soft file-descriptor limit to at least *minimum*."""
+    try:
+        import resource
+
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        target = max(soft, minimum)
+        if target > hard:
+            target = hard
+        if target > soft:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+            logger.info("Raised file-descriptor limit to %d", target)
+    except Exception:
+        logger.debug("Could not raise file-descriptor limit", exc_info=True)
+
+
 def run_daemon(*, cfg_path: str | None = None) -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -449,9 +468,14 @@ def run_daemon(*, cfg_path: str | None = None) -> None:
         logger.error("TsunamiWall daemon must run as root")
         sys.exit(1)
 
+    # Raise the soft file-descriptor limit to at least max_honeypots + buffer.
+    # This prevents Too many open files when binding many honeypots and then
+    # running firewall subprocesses.
     from .config import load_config
 
     cfg = load_config(cfg_path)
+    _raise_fd_limit(cfg.max_honeypots + 128)
+
     daemon = Daemon(cfg)
     try:
         asyncio.run(daemon.start())

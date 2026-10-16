@@ -1,2 +1,5 @@
 # Runtime dependencies for TsunamiWall.
 pyyaml>=6.0
+# Cross-platform socket discovery; required on macOS and used as a fallback on
+# Linux when /proc/net parsing is unavailable.
+psutil>=5.9

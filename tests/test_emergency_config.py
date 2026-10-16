@@ -4,7 +4,7 @@ from tsunamiwall.config import Config, load_config
 from tsunamiwall.emergency import emergency_reset
 
 
-def test_emergency_reset_uses_custom_chain(monkeypatch, tmp_path):
+def test_emergency_reset_uses_custom_chain(monkeypatch, tmp_path, fake_firewall):
     cfg_file = tmp_path / "cfg.yaml"
     run_dir = tmp_path / "run"
     run_dir.mkdir()
@@ -23,18 +23,16 @@ def test_emergency_reset_uses_custom_chain(monkeypatch, tmp_path):
     def fake_stop_daemon_if_running(cfg):
         received.append(("stop", cfg.iptables_chain))
 
-    def fake_reset(chain):
-        received.append(("reset", chain))
-
     monkeypatch.setattr("tsunamiwall.emergency.stop_daemon_if_running", fake_stop_daemon_if_running)
-    monkeypatch.setattr("tsunamiwall.emergency.reset", fake_reset)
     monkeypatch.setattr("tsunamiwall.emergency.os.geteuid", lambda: 0)
     monkeypatch.setattr("tsunamiwall.emergency.time.sleep", lambda s: None)
 
     emergency_reset(cfg)
 
+    reset_calls = [c for c in fake_firewall if c[0] == "reset" and c[1] == "ipv4"]
     assert ("stop", "CUSTOM-CHAIN") in received
-    assert ("reset", "CUSTOM-CHAIN") in received
+    assert reset_calls, "emergency reset should call backend reset"
+    assert reset_calls[0][2] == "CUSTOM-CHAIN"
 
 
 def test_cli_reset_passes_config_to_emergency_reset(monkeypatch, tmp_path):

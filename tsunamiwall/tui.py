@@ -16,6 +16,7 @@ class DisplayHit:
     src_ip: str
     src_port: int
     dst_port: int
+    family: str
 
 
 def parse_hit_line(line: str) -> DisplayHit | None:
@@ -34,6 +35,7 @@ def parse_hit_line(line: str) -> DisplayHit | None:
         src_ip=obj.get("src_ip", "?"),
         src_port=obj.get("src_port", 0),
         dst_port=obj.get("dst_port", 0),
+        family=obj.get("family", "ipv4"),
     )
 
 
@@ -60,8 +62,8 @@ def _render(stdscr, hits: list[DisplayHit]) -> None:
     stdscr.addstr(0, 0, header.ljust(width), curses.A_REVERSE)
 
     # Column headers
-    col_fmt = "{:<23} {:>15} {:>10} {:>10}"
-    headers = col_fmt.format("TIME", "SRC IP", "SRC PORT", "DST PORT")
+    col_fmt = "{:<23} {:>6} {:>15} {:>10} {:>10}"
+    headers = col_fmt.format("TIME", "FAMILY", "SRC IP", "SRC PORT", "DST PORT")
     stdscr.addstr(2, 0, headers[: width - 1], curses.A_BOLD)
     stdscr.addstr(3, 0, "-" * (width - 1))
 
@@ -71,6 +73,7 @@ def _render(stdscr, hits: list[DisplayHit]) -> None:
     for idx, hit in enumerate(visible, start=4):
         row = col_fmt.format(
             hit.time,
+            hit.family,
             hit.src_ip,
             str(hit.src_port),
             str(hit.dst_port),

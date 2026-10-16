@@ -23,6 +23,7 @@ class HitEvent:
     src_port: int
     dst_port: int
     proto: str
+    family: str = "ipv4"
     country_code: str = "UNKNOWN"
     action: str = "honeypot_hit"
 
@@ -56,9 +57,13 @@ class HoneypotServer:
         self.server: asyncio.Server | None = None
 
     async def start(self) -> None:
+        # Bind to IPv4 only. Using host=None causes asyncio to try both IPv4 and
+        # IPv6, which doubles file-descriptor usage and can exhaust fds when
+        # max_honeypots is high. IPv6 handling is done via the firewall backend,
+        # not honeypot listeners.
         self.server = await asyncio.start_server(
             self._handle,
-            host=None,
+            host="0.0.0.0",
             port=self.port,
         )
         logger.info("Honeypot listening on TCP/%d", self.port)
@@ -76,6 +81,9 @@ class HoneypotServer:
         sockname = writer.get_extra_info("sockname")
         src_ip, src_port = peer[0], peer[1]
         dst_port = sockname[1]
+        # peer[0] for IPv6 contains the scoped address with %interface; strip it.
+        src_ip = src_ip.split("%", 1)[0]
+        family = "ipv6" if ":" in src_ip else "ipv4"
         now = _iso_now()
 
         # Optional payload capture.
@@ -116,6 +124,7 @@ class HoneypotServer:
             src_ip=src_ip,
             src_port=src_port,
             dst_port=dst_port,
+            family=family,
             proto="tcp",
             country_code=country,
         )
