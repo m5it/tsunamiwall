@@ -17,6 +17,7 @@ All notable changes to TsunamiWall are documented in this file.
 - **Unique payload filenames** — payload files are now named with a nanosecond-resolution timestamp + destination port + source port so multiple probes from the same IP in the same second never overwrite each other.
 - **Accurate payload matching in log viewer** — `tsunamiwall-logs recent-payloads` now matches files by `dst_port` + `src_port` and picks the file whose mtime is closest to the hit time, instead of guessing by date prefix.
 - **Payload write error handling** — the daemon now logs `PermissionError` and other payload-write exceptions instead of silently dropping captured bytes.
+- **Truly atomic iptables cutover** — the shadow chain jump is now inserted into `INPUT` *before* the old chain jump is removed, so there is never a gap where packets bypass TsunamiWall. Chain renames then give the active ruleset the configured name. If a rename fails, the previous ruleset is restored under the configured chain name.
 
 ## [1.1.0] - 2026-10-16
 

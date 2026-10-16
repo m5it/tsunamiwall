@@ -60,6 +60,11 @@ def _install_jump_if_missing(chain: str) -> None:
     run_ip6tables("-I", "INPUT", "1", "-j", chain)
 
 
+def _rename_chain(old: str, new: str) -> None:
+    """Rename a user-defined chain; ip6tables updates all references automatically."""
+    run_ip6tables("-E", old, new)
+
+
 def build_rules(
     chain: str,
     allowed_ports: Iterable[int],
@@ -73,6 +78,7 @@ def build_rules(
     """Atomically rebuild the IPv6 TsunamiWall chain using a shadow chain.
 
     Mirrors the IPv4 policy in tsunamiwall/iptables.py but targets ip6tables.
+    The active chain is never left without an INPUT target during the swap.
     """
     blocked = set(blocked_ports or ())
     allowed = sorted(set(allowed_ports) - blocked)
@@ -181,26 +187,26 @@ def build_rules(
         _install_jump_if_missing(chain)
         raise
 
+    # Atomic swap: activate the shadow ruleset without ever leaving INPUT
+    # without a target. See tsunamiwall/iptables.py for the full explanation.
+    old = f"{chain}_OLD"
     try:
-        _remove_jump(chain)
-        _install_jump_if_missing(shadow)
-    except Ip6tablesError:
-        logger.exception("Failed to swap IPv6 INPUT jump to shadow chain %s", shadow)
-        _remove_jump(shadow)
-        _install_jump_if_missing(chain)
-        raise
-
-    try:
-        old = f"{chain}_OLD"
         if _chain_exists(old):
             flush_chain(old)
             run_ip6tables("-X", old)
-        run_ip6tables("-E", chain, old)
-        run_ip6tables("-E", shadow, chain)
+        _install_jump_if_missing(shadow)
+        _remove_jump(chain)
+        _rename_chain(chain, old)
+        _rename_chain(shadow, chain)
     except Ip6tablesError:
-        logger.exception("Failed to rename IPv6 chains %s/%s", chain, shadow)
-        _remove_jump(shadow)
-        _install_jump_if_missing(chain)
+        logger.exception("Atomic IPv6 chain swap failed for %s", chain)
+        try:
+            if _chain_exists(old) and not _chain_exists(chain):
+                _rename_chain(old, chain)
+            _install_jump_if_missing(chain)
+            _remove_jump(shadow)
+        except Ip6tablesError as rollback_exc:
+            logger.critical("Rollback after IPv6 swap failure also failed: %s", rollback_exc)
         raise
 
     try:
