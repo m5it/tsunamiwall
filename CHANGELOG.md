@@ -10,7 +10,7 @@ All notable changes to TsunamiWall are documented in this file.
 - **macOS / pfctl firewall backend** — new `firewall_backend` config option. On macOS TsunamiWall can use the native `pfctl` anchor mechanism instead of `iptables`. Linux still defaults to `iptables`/`ip6tables`.
 - **Cross-platform service discovery** — socket discovery now prefers `psutil` when `/proc/net/tcp` and `/proc/net/udp` are unavailable (e.g. macOS).
 - **No-op backend** — `firewall_backend: noop` disables firewall rule management for testing or unsupported platforms.
-- **Per-hit IP family** — honeypot hit logs now include a `family` field (`ipv4` or `ipv6`) so logs, the live TUI, and `tsunamiwall-logs` can distinguish IPv4 and IPv6 probes.
+- **Per-hit IP family + payload size** — honeypot hit logs now include `family` (`ipv4` or `ipv6`) and `payload_size` fields so logs, the live TUI, and `tsunamiwall-logs` can distinguish IPv4/IPv6 probes and show whether a payload was captured without needing to read disk.
 
 ### Fixed
 - **Linux startup file-descriptor exhaustion** — honeypot listeners now bind to `0.0.0.0` (IPv4 only) instead of dual-stack. This halves socket usage and prevents `OSError: Too many open files` during firewall rule generation when `max_honeypots` is near the default file-descriptor limit.

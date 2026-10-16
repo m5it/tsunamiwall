@@ -25,6 +25,7 @@ class HitEvent:
     proto: str
     family: str = "ipv4"
     country_code: str = "UNKNOWN"
+    payload_size: int = 0
     action: str = "honeypot_hit"
 
 
@@ -119,6 +120,8 @@ class HoneypotServer:
             country = country_code(src_ip)
         except Exception:
             country = "UNKNOWN"
+
+        payload_size = len(session.payload) if session is not None else 0
         event = HitEvent(
             time=now,
             src_ip=src_ip,
@@ -127,6 +130,7 @@ class HoneypotServer:
             family=family,
             proto="tcp",
             country_code=country,
+            payload_size=payload_size,
         )
         self.log_hit(event)
 

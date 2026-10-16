@@ -117,6 +117,9 @@ def _iter_hits(log_dir: Path) -> Iterator[dict]:
 
 
 
+
+
+
 def _format_hit(obj: dict) -> str:
     return (
         f"{obj.get('time', '?'):26} "
