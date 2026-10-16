@@ -104,13 +104,25 @@ def discover_listeners(
 def discover_ports(
     *, include_tcp: bool = True, include_udp: bool = True, include_ipv6: bool = False
 ) -> set[int]:
-    """Return just the port numbers of listening sockets."""
+    """Return just the port numbers of listening sockets.
+
+    Note: even when include_ipv6 is true, the returned set is only port
+    numbers. The caller must decide whether to manage IPv4, IPv6, or both.
+    """
     return {
         l.port
         for l in discover_listeners(
             include_tcp=include_tcp, include_udp=include_udp, include_ipv6=include_ipv6
         )
     }
+
+
+def has_ipv6_listener(port: int) -> bool:
+    """Return True if *port* has an IPv6 listening socket."""
+    for listener in discover_listeners(include_tcp=True, include_udp=True, include_ipv6=True):
+        if listener.port == port and ":" in listener.local_ip:
+            return True
+    return False
 
 
 # Optional psutil-based discovery for environments where /proc/net parsing is

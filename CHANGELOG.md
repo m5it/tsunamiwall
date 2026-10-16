@@ -20,6 +20,8 @@ All notable changes to TsunamiWall are documented in this file.
 - **Payload retention cap** — `cleanup_payloads` removes oldest `.bin` files when total payload storage exceeds `payload_log_max_bytes` (default 1 GiB). Metadata `sessions.logl` files are preserved.
 - **Rate-limited firewall logging** — all iptables `LOG` rules use `-m limit` with configurable `log_rate_limit` / `log_rate_burst` to prevent `dmesg`/journal flooding under heavy scans.
 - New module `tsunamiwall/rotation.py` and tests `tests/test_rotation.py`, `tests/test_rate_limited_logging.py`.
+- **IPv6 support** — new `enable_ipv6: true` config option. When enabled, TsunamiWall also manages an `ip6tables` chain with the same policy as IPv4, and honeypots bind to all addresses. By default only IPv4 is protected and IPv6 traffic is left untouched; this is now explicitly documented.
+- New module `tsunamiwall/ip6tables.py` and tests `tests/test_ip6tables.py`, `tests/test_ipv6_integration.py`.
 
 ### Regression tests
 - `tests/test_signal_cleanup.py` — SIGTERM/request-stop cleanup path.

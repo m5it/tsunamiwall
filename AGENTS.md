@@ -13,12 +13,12 @@ Active development. Core daemon runs on real servers, manages iptables, opens ho
 
 ## v1 scope
 - Target environment: servers.
-- Packet filter backend: `iptables`.
+- Packet filter backend: `iptables` (IPv4) with optional `ip6tables` support for dual-stack hosts.
 - Service discovery: listening sockets only (read from `/proc/net/tcp`, `/proc/net/udp`, `ss`, and `psutil` if available).
 - Management interface: manual CLI plus live TUI.
 - Honeypot scope: ports `10000-65535`, excluding ports already used by real services.
 - Honeypot behavior: accept connections, optionally read a small payload, log metadata, store payload by country/IP, then close.
-- Safety: emergency `reset` flushes all TsunamiWall-managed iptables rules even if the daemon is dead.
+- Safety: emergency `reset` flushes all TsunamiWall-managed iptables and (if enabled) ip6tables rules even if the daemon is dead.
 
 ## Architecture
 
@@ -51,6 +51,7 @@ Active development. Core daemon runs on real servers, manages iptables, opens ho
 - `tsunamiwall/discovery.py` — find listening TCP/UDP sockets and their ports.
 - `tsunamiwall/geoip.py` — offline country-code lookup (`iptocc`, optional).
 - `tsunamiwall/iptables.py` — safe wrapper around `iptables` with timeouts.
+- `tsunamiwall/ip6tables.py` — safe wrapper around `ip6tables` for IPv6 support.
 - `tsunamiwall/honeypot.py` — asyncio honeypot listener per port, payload capture.
 - `tsunamiwall/daemon.py` — main asyncio daemon.
 - `tsunamiwall/cli.py` — CLI client talking to the daemon via Unix socket; supports global and per-source-IP allow/deny.
@@ -70,6 +71,7 @@ Active development. Core daemon runs on real servers, manages iptables, opens ho
 - Runtime allow/block/deny state is persisted to `<run_dir>/daemon-state.json` and restored on startup.
 - `auto_block_listeners: true` switches the daemon to strict default-deny: discovered listening sockets are not automatically allowed.
 - A globally `block`ed port overrides `allow`, per-source-IP `allow`, auto-discovered services, and honeypot selection. `trusted_ips` still bypass the block.
+- Set `enable_ipv6: true` in config to also manage an `ip6tables` chain. By default only IPv4 is protected; IPv6 traffic is left untouched. Honeypots bind to all addresses when IPv6 is enabled, otherwise only IPv4.
 
 ## Running locally
 ```bash
@@ -92,7 +94,7 @@ sudo .venv/bin/python main.py -c /etc/tsunamiwall/config.yaml start
 
 ## Coding rules
 - Keep changes minimal and focused.
-- All iptables interactions go through `tsunamiwall/iptables.py`.
+- All iptables interactions go through `tsunamiwall/iptables.py`; IPv6 goes through `tsunamiwall/ip6tables.py`.
 - All new config keys go into `tsunamiwall/config.py` and `config/example-config.yaml`.
 - Prefer `asyncio` for network-facing code.
 - Never mutate pre-existing iptables rules outside the `TSUNAMIWALL` chain.

@@ -49,3 +49,7 @@ hit_log_max_backups: 5            # keep hits.logl.1 through .5
 payload_log_max_bytes: 1073741824 # 1 GiB total payload storage cap
 log_rate_limit: 10                # average LOG packets/second
 log_rate_burst: 20               # LOG burst before rate limiting kicks in
+
+# IPv6 support. Set to true on dual-stack hosts so TsunamiWall also manages an
+# ip6tables chain. Honeypots will listen on both IPv4 and IPv6.
+enable_ipv6: false

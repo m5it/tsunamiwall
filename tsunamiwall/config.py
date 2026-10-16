@@ -50,6 +50,9 @@ class Config:
     log_rate_limit: int = 10
     # iptables LOG rate limit: initial burst packets.
     log_rate_burst: int = 20
+    # When true, also manage an IPv6 chain with ip6tables. This protects dual-
+    # stack hosts. IPv6 honeypots listen on the same TCP ports as IPv4.
+    enable_ipv6: bool = False
 
     def __post_init__(self):
         if not 1 <= self.honeypot_start <= 65535:
@@ -83,6 +86,10 @@ class Config:
                 ipaddress.ip_network(ip, strict=False)
             except ValueError as exc:
                 raise ValueError(f"trusted_ips contains invalid IP/CIDR: {ip}") from exc
+
+    @property
+    def ipv6_chain(self) -> str:
+        return f"{self.iptables_chain}6"
 
     @property
     def hit_log_path(self) -> str:

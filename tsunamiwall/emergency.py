@@ -49,6 +49,12 @@ def emergency_reset(cfg=None) -> None:
     time.sleep(1.0)
 
     reset(cfg.iptables_chain)
+    if cfg.enable_ipv6:
+        from .ip6tables import reset as reset_ipv6
+        try:
+            reset_ipv6(cfg.ipv6_chain)
+        except Exception:
+            logger.exception("IPv6 emergency reset failed")
 
     # Clean up runtime files.
     for path in (cfg.socket_path, cfg.pid_path):

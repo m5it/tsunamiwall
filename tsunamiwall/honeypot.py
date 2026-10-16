@@ -58,7 +58,7 @@ class HoneypotServer:
     async def start(self) -> None:
         self.server = await asyncio.start_server(
             self._handle,
-            host="0.0.0.0",
+            host=None,
             port=self.port,
         )
         logger.info("Honeypot listening on TCP/%d", self.port)

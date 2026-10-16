@@ -118,6 +118,26 @@ The rule is inserted before global `allow` rules, so it only opens the port for 
 
 Runtime allow/deny changes are persisted to `/run/tsunamiwall/daemon-state.json` and restored automatically when the daemon restarts, so your rules survive reboots or restarts (as long as `run_dir` is on persistent storage).
 
+### IPv6 support
+By default TsunamiWall only protects IPv4. On dual-stack hosts, add this to your config so TsunamiWall also manages an `ip6tables` chain with the same default-deny policy:
+```yaml
+enable_ipv6: true
+```
+Honeypots will then listen on both IPv4 and IPv6. Verify the IPv6 chain with:
+```bash
+sudo ip6tables -L TSUNAMIWALL6 -n
+```
+
+### Log and payload rotation
+To control disk growth under heavy scans, tune these config keys:
+```yaml
+hit_log_max_bytes: 104857600      # rotate hits.logl after 100 MiB
+hit_log_max_backups: 5            # keep up to 5 rotated files
+payload_log_max_bytes: 1073741824 # cap total payload storage at 1 GiB
+log_rate_limit: 10                # iptables LOG packets/second
+log_rate_burst: 20               # initial LOG burst
+```
+
 ### View honeypot hits
 ```bash
 sudo .venv/bin/python main.py logs
@@ -163,6 +183,8 @@ To see the active allow/honeypot rules:
 ```bash
 ./run.sh status
 sudo iptables -L TSUNAMIWALL -n
+# if enable_ipv6 is true:
+sudo ip6tables -L TSUNAMIWALL6 -n
 ```
 
 To see which destination ports are being actively dropped/probed recently:
@@ -171,6 +193,7 @@ sudo scripts/tsunamiwall-logs dropped
 sudo scripts/tsunamiwall-logs dropped 30   # top 30
 sudo dmesg | scripts/extract-attack-ports.sh --dst-port
 ```
+Note: `dmesg`/`journald` will only contain rate-limited LOG entries from iptables. Use `scripts/tsunamiwall-logs` for the full hit log.
 
 ### Inspecting logs with `scripts/tsunamiwall-logs`
 

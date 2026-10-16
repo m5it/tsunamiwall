@@ -20,6 +20,7 @@ from .honeypot import (
     default_payload_writer,
     jsonl_formatter,
 )
+from .ip6tables import build_rules as build_rules_ipv6, reset as reset_ipv6
 from .iptables import build_rules, reset
 from .rotation import cleanup_payloads, rotate_hit_log
 
@@ -195,6 +196,11 @@ class Daemon:
             self._save_state()
             self._remove_pid()
             reset(self.cfg.iptables_chain)
+            if self.cfg.enable_ipv6:
+                try:
+                    reset_ipv6(self.cfg.ipv6_chain)
+                except Exception:
+                    logger.exception("IPv6 reset during stop failed")
             logger.info("TsunamiWall daemon stopped")
             self._cleanup_done.set()
 
@@ -286,6 +292,23 @@ class Daemon:
             log_rate_limit=self.cfg.log_rate_limit,
             log_rate_burst=self.cfg.log_rate_burst,
         )
+
+        # IPv6 chain mirrors IPv4 policy when enabled.
+        if self.cfg.enable_ipv6:
+            try:
+                build_rules_ipv6(
+                    self.cfg.ipv6_chain,
+                    managed_allowed,
+                    honeypot_ports,
+                    trusted_ips=self.cfg.trusted_ips,
+                    allowed_per_ip=allowed_per_ip,
+                    blocked_ports=self.blocked_ports,
+                    log_rate_limit=self.cfg.log_rate_limit,
+                    log_rate_burst=self.cfg.log_rate_burst,
+                )
+            except Exception:
+                logger.exception("IPv6 rule build failed")
+
         logger.info("Reconciled: allowed=%s honeypots=%d", sorted(managed_allowed), len(honeypot_ports))
         self._save_state()
 
