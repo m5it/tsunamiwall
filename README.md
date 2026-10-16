@@ -1,6 +1,6 @@
 :tsunami: # TsunamiWall
 
-Linux server firewall with built-in per-port honeypot listeners.
+Server firewall with built-in per-port honeypot listeners. Runs on Linux (`iptables`/`ip6tables`) and experimentally on macOS (`pfctl`).
 
 ## What it does
 - **Blocks** all unsolicited inbound traffic by default.
@@ -9,9 +9,6 @@ Linux server firewall with built-in per-port honeypot listeners.
 - **Opens stealth honeypot listeners** on unused high ports (`10000-65535`) to catch and record attacker behavior.
 - **Captures attacker payloads** and stores them per country / per IP.
 - Provides a simple CLI, a live TUI, config-file support, and an emergency reset for safety.
-
-## Status
-v1 focuses on TCP/UDP listening socket discovery, `iptables` (IPv4) backend, optional `ip6tables` (IPv6) support, manual CLI, and honeypot threat visibility. v1.2.0 adds experimental macOS support via the native `pfctl` anchor mechanism.
 
 ## Quick start
 
@@ -69,7 +66,7 @@ For an all-in-one start, use the included `start.sh` script. It starts the daemo
 | `deny <port> --ip <IP/CIDR>` | Remove a per-source-IP allowed port |
 | `block <port>` / `block --file <path>` | Block a port (drop traffic even if a service listens) |
 | `unblock <port>` / `unblock --file <path>` | Remove a blocked port |
-| `reset` | Emergency stop + flush all TsunamiWall `iptables` (and `ip6tables` if enabled) rules |
+| `reset` | Emergency stop + flush all TsunamiWall firewall rules |
 
 ## Configuration file
 
