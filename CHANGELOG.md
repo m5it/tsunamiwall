@@ -22,6 +22,7 @@ All notable changes to TsunamiWall are documented in this file.
 - New module `tsunamiwall/rotation.py` and tests `tests/test_rotation.py`, `tests/test_rate_limited_logging.py`.
 - **IPv6 support** — new `enable_ipv6: true` config option. When enabled, TsunamiWall also manages an `ip6tables` chain with the same policy as IPv4, and honeypots bind to all addresses. By default only IPv4 is protected and IPv6 traffic is left untouched; this is now explicitly documented.
 - New module `tsunamiwall/ip6tables.py` and tests `tests/test_ip6tables.py`, `tests/test_ipv6_integration.py`.
+- **Documentation of default `auto_block_listeners: false` tradeoff** — README, usage docs, example config, and config comments now clearly explain that the default automatically allows every discovered listener, and how to enable strict default-deny.
 
 ### Regression tests
 - `tests/test_signal_cleanup.py` — SIGTERM/request-stop cleanup path.

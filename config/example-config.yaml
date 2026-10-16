@@ -28,6 +28,10 @@ trusted_ips: []
 # automatically allowed; only ports explicitly added with `allow` are opened.
 # Use this for a stricter firewall posture. Default is false.
 auto_block_listeners: false
+# SECURITY NOTE: leaving this false means every listening socket (SSH, web,
+# database, etc.) is automatically allowed inbound. Set to true and add your
+# management IP to trusted_ips before enabling on production servers if you
+# want a real default-deny policy.
 
 # Payload capture from honeypot connections.
 # When enabled, TsunamiWall reads up to payload_max_bytes from each probe and

@@ -31,8 +31,11 @@ class Config:
     trusted_ips: list[str] = field(default_factory=list)
     # When true, discovered listening ports are treated as blocked until they are
     # explicitly allowed. This gives a strict default-deny policy where every real
-    # service must be whitelisted. When false (the default), TsunamiWall behaves as
-    # an allow-list firewall: any listening socket is automatically allowed.
+    # service must be whitelisted. When false (the default), TsunamiWall behaves as an
+    # allow-list firewall: any listening socket is automatically allowed. The default is
+    # false for backwards compatibility and to avoid locking users out of existing
+    # services; security-focused deployments should set this to true and manually
+    # whitelist required services.
     auto_block_listeners: bool = False
     # Maximum payload bytes to read from each honeypot connection.
     payload_max_bytes: int = 4096

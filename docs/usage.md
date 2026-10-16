@@ -101,12 +101,18 @@ sudo .venv/bin/python main.py unblock 1337
 
 A globally `block`ed port is dropped and logged even if it is also in the `allow` list, allowed for a specific source IP/CIDR, or has a listening service. `block` overrides everything except `trusted_ips`.
 
-### Strict default-deny mode
-Add this to your config to stop TsunamiWall from automatically allowing every listening socket:
+### Default policy: auto-allow listeners
+By default (`auto_block_listeners: false`) every listening socket discovered by TsunamiWall is automatically allowed inbound. This is convenient for first-time setup because it does not lock you out of existing services, but it is **not** a strict default-deny firewall. If you want true default-deny:
+
+1. Add your management IP/CIDR to `trusted_ips` first.
+2. Set `auto_block_listeners: true`.
+3. Manually `allow` the ports you actually need.
+
 ```yaml
+trusted_ips:
+  - "203.0.113.45"
 auto_block_listeners: true
 ```
-In this mode only ports you explicitly `allow` are opened. Real services like SSH must be whitelisted manually, so make sure your management IP is in `trusted_ips` first.
 
 ### Allow a port only for a specific IP or CIDR
 ```bash

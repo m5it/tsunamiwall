@@ -82,6 +82,8 @@ TsunamiWall reads YAML configuration from (in order):
 
 Key options include `trusted_ips`, `auto_block_listeners`, `honeypot_start`/`honeypot_end`, `max_honeypots`, payload capture settings, log rotation settings, and `enable_ipv6` for dual-stack hosts.
 
+> **Note on `auto_block_listeners`:** the default is `false`, which means TsunamiWall automatically allows every listening socket it discovers. This is convenient for setup but not a strict default-deny policy. Set it to `true` after adding your management IP to `trusted_ips` for a real default-deny posture.
+
 ## Architecture
 
 ```
