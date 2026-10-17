@@ -228,13 +228,16 @@ Note: `dmesg`/`journald` will only contain rate-limited LOG entries from iptable
 The `scripts/tsunamiwall-logs` helper reads the JSONL hit log and the per-country payload tree without needing the daemon socket. It automatically re-executes with `sudo` when the configured `log_dir` is not readable by the current user, so in most cases you can run it without prefixing `sudo`:
 
 ```bash
-scripts/tsunamiwall-logs recent             # last 50 hits
+scripts/tsunamiwall-logs recent             # last 50 hits (newest first)
 scripts/tsunamiwall-logs recent 20          # last 20 hits
-scripts/tsunamiwall-logs tail               # follow the hit log live
+scripts/tsunamiwall-logs tail               # follow the hit log live (reopens on rotation)
 scripts/tsunamiwall-logs by-ip 1.2.3.4
 scripts/tsunamiwall-logs by-country US
 scripts/tsunamiwall-logs by-dst 10005
-scripts/tsunamiwall-logs payloads 1.2.3.4    # show payloads for an IP
+scripts/tsunamiwall-logs payloads 1.2.3.4              # payloads for an IP
+scripts/tsunamiwall-logs payloads 10 by-ip 1.2.3.4       # 10 most recent payloads for an IP
+scripts/tsunamiwall-logs payloads 5 by-country US        # 5 most recent payloads from a country
+scripts/tsunamiwall-logs payloads 3 by-dst 22           # 3 most recent payloads on destination port 22
 scripts/tsunamiwall-logs stats               # top IPs, countries and ports
 scripts/tsunamiwall-logs dropped             # top dropped destination ports
 scripts/tsunamiwall-logs recent-payloads     # recent hits with payload previews

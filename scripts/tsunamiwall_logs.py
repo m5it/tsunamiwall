@@ -61,9 +61,12 @@ def _parser() -> argparse.ArgumentParser:
     by_dst.add_argument("port", type=int, help="destination port")
 
     payloads = sub.add_parser("payloads", help="list or show captured payloads")
-    payloads.add_argument("ip", nargs="?", help="filter payloads by source IP")
+    payloads.add_argument("term", nargs="*", help="filter terms: IP, by-ip IP, by-country CC, by-dst PORT, or a number for --last")
     payloads.add_argument("--country", metavar="CC", help="filter payloads by country code")
     payloads.add_argument("--last", type=int, metavar="N", help="show only the N most recent payloads")
+    payloads.add_argument("--by-ip", metavar="IP", dest="by_ip", help="filter payloads by source IP")
+    payloads.add_argument("--by-country", metavar="CC", dest="by_country", help="filter payloads by country code")
+    payloads.add_argument("--by-dst", metavar="PORT", dest="by_dst", type=int, help="filter payloads by destination port")
 
     recent_payloads_p = sub.add_parser(
         "recent-payloads",
@@ -120,9 +123,23 @@ def _iter_hits(log_dir: Path) -> Iterator[dict]:
 
 
 
+def _format_hit_time(hit_time: str) -> str:
+    """Convert a UTC ISO timestamp (e.g. 2026-10-17T19:50:33Z) to local time."""
+    if not hit_time or hit_time == "?":
+        return "?"
+    try:
+        from datetime import datetime, timezone
+        dt = datetime.fromisoformat(hit_time.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return hit_time
+
+
 def _format_hit(obj: dict) -> str:
     return (
-        f"{obj.get('time', '?'):26} "
+        f"{_format_hit_time(obj.get('time', '')):20} "
         f"{obj.get('family', 'ipv4'):6} "
         f"{obj.get('src_ip', '?'):20} "
         f"country={obj.get('country_code', '?'):4} "
@@ -132,21 +149,44 @@ def _format_hit(obj: dict) -> str:
     )
 
 
+def _sort_hits(hits: list[dict]) -> list[dict]:
+    """Sort hit records newest-first; fall back to file order if time is missing."""
+    return sorted(hits, key=lambda h: h.get("time", ""), reverse=True)
+
+
 def _print_hits(hits: list[dict]) -> None:
     if not hits:
         print("No hits.")
         return
-    print(f"{'TIME':26} {'FAMILY':6} {'SRC IP':20} {'CC':4} {'SPORT':6} {'DPORT':6} {'SIZE':5}")
-    print("-" * 80)
+    print(f"{'TIME':20} {'FAMILY':6} {'SRC IP':20} {'CC':4} {'SPORT':6} {'DPORT':6} {'SIZE':5}")
+    print("-" * 74)
     for obj in hits:
         print(_format_hit(obj))
 
 
 def cmd_recent(args: argparse.Namespace) -> int:
     _, log_dir = _load_config(args)
-    hits = list(_iter_hits(log_dir))[-args.count :]
+    hits = _sort_hits(list(_iter_hits(log_dir)))[: args.count]
     _print_hits(hits)
     return 0
+
+
+def _print_hit_line(line: str) -> None:
+    line = line.strip()
+    if not line:
+        return
+    try:
+        obj = json.loads(line)
+        print(_format_hit(obj))
+    except json.JSONDecodeError:
+        pass
+
+
+def _current_inode(path: Path) -> int | None:
+    try:
+        return path.stat().st_ino
+    except FileNotFoundError:
+        return None
 
 
 def cmd_tail(args: argparse.Namespace) -> int:
@@ -157,26 +197,33 @@ def cmd_tail(args: argparse.Namespace) -> int:
         return 1
 
     print("Following hit log. Press Ctrl+C to stop.")
-    with open(path, "r", encoding="utf-8") as fh:
+
+    inode = _current_inode(path)
+    fh = open(path, "r", encoding="utf-8")
+    try:
         fh.seek(0, os.SEEK_END)
         while True:
             line = fh.readline()
-            if not line:
-                time.sleep(0.2)
+            if line:
+                _print_hit_line(line)
                 continue
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-                print(_format_hit(obj))
-            except json.JSONDecodeError:
-                pass
+
+            # No new data; check whether the file was rotated.
+            time.sleep(0.2)
+            new_inode = _current_inode(path)
+            if new_inode is not None and new_inode != inode:
+                # The daemon rotated the log; reopen the current file.
+                fh.close()
+                inode = new_inode
+                fh = open(path, "r", encoding="utf-8")
+                fh.seek(0, os.SEEK_END)
+    finally:
+        fh.close()
 
 
 def cmd_by_ip(args: argparse.Namespace) -> int:
     _, log_dir = _load_config(args)
-    hits = [h for h in _iter_hits(log_dir) if h.get("src_ip") == args.ip]
+    hits = _sort_hits([h for h in _iter_hits(log_dir) if h.get("src_ip") == args.ip])
     _print_hits(hits)
     return 0
 
@@ -184,7 +231,7 @@ def cmd_by_ip(args: argparse.Namespace) -> int:
 def cmd_by_country(args: argparse.Namespace) -> int:
     _, log_dir = _load_config(args)
     cc = args.country.upper()
-    hits = [h for h in _iter_hits(log_dir) if h.get("country_code", "").upper() == cc]
+    hits = _sort_hits([h for h in _iter_hits(log_dir) if h.get("country_code", "").upper() == cc])
     _print_hits(hits)
     return 0
 
@@ -192,7 +239,7 @@ def cmd_by_country(args: argparse.Namespace) -> int:
 def cmd_by_dst(args: argparse.Namespace) -> int:
     _, log_dir = _load_config(args)
     port = args.port
-    hits = [h for h in _iter_hits(log_dir) if h.get("dst_port") == port]
+    hits = _sort_hits([h for h in _iter_hits(log_dir) if h.get("dst_port") == port])
     _print_hits(hits)
     return 0
 
@@ -260,15 +307,55 @@ def _snip(path: Path, max_bytes: int = 2048) -> str:
     return _text_snip(data, max_bytes)
 
 
+def _parse_payload_terms(args: argparse.Namespace) -> tuple[str | None, str | None, int | None, int | None]:
+    """Return (ip_filter, country_filter, dst_port_filter, last_count) from positional terms and options."""
+    ip_filter: str | None = getattr(args, "by_ip", None)
+    country_filter: str | None = args.country or getattr(args, "by_country", None)
+    dst_port_filter: int | None = getattr(args, "by_dst", None)
+    last_count: int | None = args.last
+
+    terms = list(getattr(args, "term", []) or [])
+    i = 0
+    while i < len(terms):
+        t = terms[i]
+        if t == "by-ip" and i + 1 < len(terms):
+            ip_filter = terms[i + 1]
+            i += 2
+        elif t == "by-country" and i + 1 < len(terms):
+            country_filter = terms[i + 1]
+            i += 2
+        elif t == "by-dst" and i + 1 < len(terms):
+            try:
+                dst_port_filter = int(terms[i + 1])
+            except ValueError:
+                pass
+            i += 2
+        elif t.isdigit():
+            last_count = int(t)
+            i += 1
+        elif ip_filter is None:
+            # First non-keyword term is treated as an IP filter for backward compat.
+            ip_filter = t
+            i += 1
+        else:
+            i += 1
+    return ip_filter, country_filter, dst_port_filter, last_count
+
+
 def cmd_payloads(args: argparse.Namespace) -> int:
     _, log_dir = _load_config(args)
-    files = _payload_files(log_dir, ip_filter=args.ip, country_filter=args.country)
+    ip_filter, country_filter, dst_port_filter, last_count = _parse_payload_terms(args)
+    files = _payload_files(log_dir, ip_filter=ip_filter, country_filter=country_filter)
     if not files:
         print("No payloads found.")
         return 0
 
-    if args.last:
-        files = files[: args.last]
+    if dst_port_filter is not None:
+        suffix = f"_{dst_port_filter}_"
+        files = [p for p in files if suffix in p.name]
+
+    if last_count:
+        files = files[:last_count]
 
     print(f"{'COUNTRY':8} {'IP':20} {'TIME':20} {'FILE'}")
     print("-" * 100)
@@ -364,7 +451,7 @@ def _hit_timestamp(hit_time: str) -> float:
 
 def cmd_recent_payloads(args: argparse.Namespace) -> int:
     _, log_dir = _load_config(args)
-    hits = list(_iter_hits(log_dir))[-args.count :]
+    hits = _sort_hits(list(_iter_hits(log_dir)))[: args.count]
     if not hits:
         print("No hits.")
         return 0

@@ -4,6 +4,14 @@ All notable changes to TsunamiWall are documented in this file.
 
 ## [Unreleased] - current
 
+### Added
+- **Log viewer payload filters** — `scripts/tsunamiwall-logs payloads` now accepts `by-ip <IP>`, `by-country <CC>` and `by-dst <PORT>` filter terms, plus a bare count for `--last`, so commands like `payloads 3 by-ip 1.2.3.4 by-dst 22` work intuitively.
+
+### Fixed
+- **Log viewer ordering** — `recent`, `by-ip`, `by-country`, `by-dst` and `recent-payloads` now display hits newest-first (descending) instead of file-order.
+- **`tail` follows log rotation** — `scripts/tsunamiwall-logs tail` now detects when `hits.logl` is rotated and reopens the current file, so it no longer gets stuck on an old inode and misses new honeypot hits.
+- **Consistent log viewer time display** — hit times are now converted from UTC to local time before printing, so `tail`/`recent` timestamps match the payload mtime display and `date`.
+
 ## [1.2.0] - 2026-10-17
 
 ### Added
