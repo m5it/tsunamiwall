@@ -22,7 +22,7 @@ def test_run_ip6tables_uses_correct_binary(monkeypatch):
 def test_build_rules_creates_ipv6_chain(monkeypatch):
     commands = []
 
-    def fake_run(*args):
+    def fake_run(*args, **kwargs):
         commands.append(args)
 
     monkeypatch.setattr("tsunamiwall.ip6tables.run_ip6tables", fake_run)
@@ -53,7 +53,7 @@ def test_build_rules_creates_ipv6_chain(monkeypatch):
 def test_build_rules_shadow_swap_atomic(monkeypatch):
     commands = []
 
-    def fake_run(*args):
+    def fake_run(*args, **kwargs):
         commands.append(args)
 
     monkeypatch.setattr("tsunamiwall.ip6tables.run_ip6tables", fake_run)
@@ -74,7 +74,7 @@ def test_build_rules_rollback_on_failure(monkeypatch):
     commands = []
     fail_after = 5
 
-    def fake_run(*args):
+    def fake_run(*args, **kwargs):
         nonlocal fail_after
         commands.append(args)
         fail_after -= 1

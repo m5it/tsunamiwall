@@ -12,6 +12,7 @@ All notable changes to TsunamiWall are documented in this file.
 - **No-op backend** — `firewall_backend: noop` disables firewall rule management for testing or unsupported platforms.
 - **Per-hit IP family + payload size** — honeypot hit logs now include `family` (`ipv4` or `ipv6`) and `payload_size` fields so logs, the live TUI, and `tsunamiwall-logs` can distinguish IPv4/IPv6 probes and show whether a payload was captured without needing to read disk.
 - **Configurable low-port honeypots** — the honeypot port range (`honeypot_start`/`honeypot_end`) can now be set as low as port 1. The daemon runs as root and can bind privileged ports; a warning is logged when a honeypot binds to a port below 1024.
+- **Status shows active config + config path** — `./run.sh status` now reports the full configuration the daemon is running with and the path of the config file it loaded, so it is easy to verify which file is in use.
 - **Log viewer sudo wrapper** — `scripts/tsunamiwall-logs` now re-executes itself with `sudo` when the configured `log_dir` is not readable by the current user, so you do not need to prefix `sudo` manually. If `sudo` is unavailable, it falls back to running normally and reports the permission error.
 
 ### Fixed
@@ -20,6 +21,9 @@ All notable changes to TsunamiWall are documented in this file.
 - **Accurate payload matching in log viewer** — `tsunamiwall-logs recent-payloads` now matches files by `dst_port` + `src_port` and picks the file whose mtime is closest to the hit time, instead of guessing by date prefix.
 - **Payload write error handling** — the daemon now logs `PermissionError` and other payload-write exceptions instead of silently dropping captured bytes.
 - **Truly atomic iptables cutover** — the shadow chain jump is now inserted into `INPUT` *before* the old chain jump is removed, so there is never a gap where packets bypass TsunamiWall. Chain renames then give the active ruleset the configured name. If a rename fails, the previous ruleset is restored under the configured chain name.
+- **run.sh defaults to the caller's config** — when `run.sh` is invoked without `-c`/`--config`, it now defaults to the caller's own `~/.config/tsunamiwall/config.yaml` before elevating with `sudo`. This prevents `sudo` from changing `$HOME` to `/root` and loading a different config file than the user expects.
+- **Graceful stop with stale socket** — `tsunamiwall stop` now catches `DaemonUnreachable` when the socket file exists but no daemon is listening, removes the stale socket, and reports the situation cleanly instead of crashing with a traceback.
+- **Clearer YAML parse errors** — invalid YAML in a config file now produces a readable `ValueError` instead of a raw PyYAML traceback.
 
 ## [1.1.0] - 2026-10-16
 
@@ -38,7 +42,7 @@ All notable changes to TsunamiWall are documented in this file.
 - **Rate-limited firewall logging** — all iptables `LOG` rules use `-m limit` with configurable `log_rate_limit` / `log_rate_burst` to prevent `dmesg`/journal flooding under heavy scans.
 - New module `tsunamiwall/rotation.py` and tests `tests/test_rotation.py`, `tests/test_rate_limited_logging.py`.
 - **IPv6 support** — new `enable_ipv6: true` config option. When enabled, TsunamiWall also manages an `ip6tables` chain with the same policy as IPv4, and honeypots bind to all addresses. By default only IPv4 is protected and IPv6 traffic is left untouched; this is now explicitly documented.
-- **CLI `allow --ip`** — per-source-IP allow rules via `tsunamiwall allow <port> --ip <IP/CIDR>` and matching `deny --ip` removal.
+- **CLI `allow --ip`** — per-source-IP allow rules via `tsunamiwall allow \u003cport\u003e --ip \u003cIP/CIDR\u003e` and matching `deny --ip` removal.
 - **CLI response robustness** — `cmd_status` now catches socket errors and prints a clear message when the daemon is unreachable.
 - **Per-IP allow persistence** — per-source-IP allow rules are included in `daemon-state.json` and restored on startup.
 

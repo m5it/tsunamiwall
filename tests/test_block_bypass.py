@@ -9,7 +9,7 @@ from tsunamiwall.iptables import build_rules
 def _commands_from_build_rules(monkeypatch, **kwargs):
     commands = []
 
-    def fake_run(*args):
+    def fake_run(*args, **kwargs):
         commands.append(args)
 
     monkeypatch.setattr("tsunamiwall.iptables.run_iptables", fake_run)

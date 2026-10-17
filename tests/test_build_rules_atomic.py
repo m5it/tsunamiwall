@@ -13,7 +13,7 @@ def test_build_rules_uses_shadow_chain_and_swaps(monkeypatch):
     """build_rules should build in a shadow chain, swap, and clean up the old chain."""
     commands = []
 
-    def fake_run(*args):
+    def fake_run(*args, **kwargs):
         commands.append(args)
 
     monkeypatch.setattr("tsunamiwall.iptables.run_iptables", fake_run)
@@ -54,7 +54,7 @@ def test_build_rules_active_chain_never_flushed_empty(monkeypatch):
     """The active chain must not be flushed while it is jumped from INPUT."""
     commands = []
 
-    def fake_run(*args):
+    def fake_run(*args, **kwargs):
         commands.append(args)
 
     monkeypatch.setattr("tsunamiwall.iptables.run_iptables", fake_run)
@@ -75,7 +75,7 @@ def test_build_rules_rollback_on_shadow_failure(monkeypatch):
     commands = []
     should_fail = True
 
-    def fake_run(*args):
+    def fake_run(*args, **kwargs):
         commands.append(args)
         if should_fail and "TW-TEST_NEW" in args and "ACCEPT" in args:
             from tsunamiwall.iptables import IptablesError
@@ -103,7 +103,7 @@ def test_build_rules_installs_shadow_jump_before_removing_old(monkeypatch):
     """The shadow jump must be inserted before the active jump is removed."""
     commands = []
 
-    def fake_run(*args):
+    def fake_run(*args, **kwargs):
         commands.append(args)
 
     monkeypatch.setattr("tsunamiwall.iptables.run_iptables", fake_run)
@@ -126,7 +126,7 @@ def test_build_rules_rollback_on_rename_active_to_old(monkeypatch):
     chains = {"TW-TEST"}
     trigger = {"fail": True}
 
-    def fake_run(*args):
+    def fake_run(*args, **kwargs):
         commands.append(args)
         if args[0] == "-N":
             chains.add(args[1])
@@ -163,7 +163,7 @@ def test_build_rules_rollback_on_rename_shadow_to_active(monkeypatch):
     chains = {"TW-TEST"}
     trigger = {"fail": True}
 
-    def fake_run(*args):
+    def fake_run(*args, **kwargs):
         commands.append(args)
         if args[0] == "-N":
             chains.add(args[1])

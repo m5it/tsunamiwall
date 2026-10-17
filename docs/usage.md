@@ -280,6 +280,8 @@ sudo .venv/bin/python main.py -c /etc/tsunamiwall/config.yaml start
 ./run.sh -c /etc/tsunamiwall/config.yaml start
 ```
 
+> **Config path is determined at daemon startup.** `run.sh` will use the file you pass with `-c`, or default to the caller's `~/.config/tsunamiwall/config.yaml`. Use `./run.sh status` to see the loaded `config_path` and confirm the daemon is using the file you expect.
+
 Key tunables:
 - `honeypot_start` / `honeypot_end` — honeypot port range (default `10000-65535`; set as low as `1` if you want to observe privileged ports).
 - `max_honeypots` — hard cap on listeners (default 900, safe for default Linux fd limits).

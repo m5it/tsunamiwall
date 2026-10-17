@@ -4,7 +4,7 @@ from tsunamiwall.iptables import build_rules
 def test_build_rules_adds_rate_limit_to_log_rules(monkeypatch):
     commands = []
 
-    def fake_run(*args):
+    def fake_run(*args, **kwargs):
         commands.append(args)
 
     monkeypatch.setattr("tsunamiwall.iptables.run_iptables", fake_run)
@@ -32,7 +32,7 @@ def test_build_rules_adds_rate_limit_to_log_rules(monkeypatch):
 def test_rate_limit_defaults_used_when_not_specified(monkeypatch):
     commands = []
 
-    def fake_run(*args):
+    def fake_run(*args, **kwargs):
         commands.append(args)
 
     monkeypatch.setattr("tsunamiwall.iptables.run_iptables", fake_run)

@@ -126,7 +126,27 @@ def cmd_stop(args: argparse.Namespace) -> int:
     if not os.path.exists(cfg.socket_path):
         print("Daemon socket not found; daemon is not running.", file=sys.stderr)
         return 0
-    return _print_response(_send(args, {"action": "stop"}))
+    try:
+        return _print_response(_send(args, {"action": "stop"}))
+    except DaemonUnreachable as exc:
+        print(f"Daemon socket exists but daemon is not responding: {exc}", file=sys.stderr)
+        # Best-effort cleanup of stale socket/PID files so the user can start fresh.
+        try:
+            os.remove(cfg.socket_path)
+        except FileNotFoundError:
+            pass
+        if os.path.exists(cfg.pid_path):
+            try:
+                with open(cfg.pid_path, "r", encoding="utf-8") as fh:
+                    pid = int(fh.read().strip())
+                os.kill(pid, 0)  # raises if process is gone
+                print(f"Daemon process {pid} appears stuck; you may need to kill it manually.", file=sys.stderr)
+            except (ValueError, ProcessLookupError, PermissionError, FileNotFoundError):
+                try:
+                    os.remove(cfg.pid_path)
+                except FileNotFoundError:
+                    pass
+        return 1
 
 
 def cmd_reset(args: argparse.Namespace) -> int:
@@ -180,15 +200,6 @@ def cmd_start(args: argparse.Namespace) -> int:
     return 0
 
 
-def _add_config_arg(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--config",
-        "-c",
-        metavar="PATH",
-        help="path to TsunamiWall YAML config file",
-    )
-
-
 def _version() -> str:
     import importlib.metadata
     try:
@@ -198,28 +209,40 @@ def _version() -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = list(argv or sys.argv[1:])
+
+    # Extract global --config/-c from anywhere in the argv, so both
+    #   tsunamiwall -c path start
+    #   tsunamiwall start -c path
+    # work and end up on the same Namespace attribute.
+    config_path: str | None = None
+    i = 0
+    while i < len(argv):
+        if argv[i] in ("--config", "-c") and i + 1 < len(argv):
+            config_path = argv[i + 1]
+            del argv[i : i + 2]
+            continue
+        if argv[i].startswith("--config="):
+            config_path = argv[i].split("=", 1)[1]
+            del argv[i]
+            continue
+        i += 1
+
     parser = argparse.ArgumentParser(prog="tsunamiwall", description="TsunamiWall CLI")
     parser.add_argument("--version", "-v", action="version", version=f"tsunamiwall {_version()}")
-    _add_config_arg(parser)
     sub = parser.add_subparsers(dest="command", required=True)
 
     start_p = sub.add_parser("start", help="start the TsunamiWall daemon (runs in foreground)")
-    _add_config_arg(start_p)
 
     status_p = sub.add_parser("status", help="show allowed ports and active honeypots")
-    _add_config_arg(status_p)
 
     stop_p = sub.add_parser("stop", help="gracefully stop the daemon and save state")
-    _add_config_arg(stop_p)
 
     reset_p = sub.add_parser("reset", help="emergency stop: flush rules and exit daemon")
-    _add_config_arg(reset_p)
 
     logs_p = sub.add_parser("logs", help="show recent honeypot hit logs")
-    _add_config_arg(logs_p)
 
     watch_p = sub.add_parser("watch", help="live TUI of honeypot hits")
-    _add_config_arg(watch_p)
 
     allow_p = sub.add_parser("allow", help="explicitly allow one or more ports")
     allow_p.add_argument("port", type=int, nargs="?", help="single port to allow")
@@ -227,7 +250,6 @@ def main(argv: list[str] | None = None) -> int:
     allow_p.add_argument(
         "--ip", metavar="IP/CIDR", help="restrict the allowed port(s) to this source IP or CIDR"
     )
-    _add_config_arg(allow_p)
 
     deny_p = sub.add_parser("deny", help="remove one or more allowed/blocked ports")
     deny_p.add_argument("port", type=int, nargs="?", help="single port to deny")
@@ -235,19 +257,18 @@ def main(argv: list[str] | None = None) -> int:
     deny_p.add_argument(
         "--ip", metavar="IP/CIDR", help="remove the port(s) only for this source IP or CIDR"
     )
-    _add_config_arg(deny_p)
 
     block_p = sub.add_parser("block", help="explicitly block one or more ports (drops traffic even if a service listens)")
     block_p.add_argument("port", type=int, nargs="?", help="single port to block")
     block_p.add_argument("--file", "-f", metavar="PATH", help="file with one port per line")
-    _add_config_arg(block_p)
 
     unblock_p = sub.add_parser("unblock", help="remove one or more blocked ports")
     unblock_p.add_argument("port", type=int, nargs="?", help="single port to unblock")
     unblock_p.add_argument("--file", "-f", metavar="PATH", help="file with one port per line")
-    _add_config_arg(unblock_p)
 
     args = parser.parse_args(argv)
+    args = argparse.Namespace(**{**vars(args), "config": config_path})
+
     for cmd in ("allow", "deny", "block", "unblock"):
         if args.command == cmd and args.port is None and not args.file:
             parser.error(f"{cmd} requires either a PORT argument or --file")

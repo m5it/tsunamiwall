@@ -57,7 +57,7 @@ For an all-in-one start, use the included `start.sh` script. It starts the daemo
 |---|---|
 | `start` | Run the daemon in the foreground (needs root) |
 | `stop` | Gracefully stop the daemon and save runtime state |
-| `status` | Show allowed/blocked ports and active honeypots |
+| `status` | Show active config file, allowed/blocked ports, and active honeypots |
 | `watch` | Live full-screen TUI of honeypot hits |
 | `logs` | Show recent honeypot hits |
 | `allow <port>` / `allow --file <path>` | Allow one or many ports |

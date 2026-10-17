@@ -14,8 +14,12 @@ class Ip6tablesError(Exception):
     """Raised when an ip6tables command fails unexpectedly."""
 
 
-def run_ip6tables(*args: str) -> None:
-    """Run ip6tables with the given arguments, raising on error."""
+def run_ip6tables(*args: str, quiet: bool = False) -> None:
+    """Run ip6tables with the given arguments, raising on error.
+
+    Set *quiet=True* for best-effort cleanup commands whose failure is expected
+    and handled by the caller.
+    """
     cmd = ["ip6tables", "-w", "5"] + list(args)
     logger.debug("Running: %s", " ".join(shlex.quote(a) for a in cmd))
     try:
@@ -26,7 +30,8 @@ def run_ip6tables(*args: str) -> None:
         raise Ip6tablesError(msg) from exc
     if result.returncode != 0:
         msg = f"ip6tables failed ({result.returncode}): {result.stderr.strip()}"
-        logger.error(msg)
+        if not quiet:
+            logger.error(msg)
         raise Ip6tablesError(msg)
 
 
@@ -47,7 +52,7 @@ def flush_chain(chain: str) -> None:
 
 def _remove_jump(chain: str) -> None:
     try:
-        run_ip6tables("-D", "INPUT", "-j", chain)
+        run_ip6tables("-D", "INPUT", "-j", chain, quiet=True)
     except Ip6tablesError:
         pass
 

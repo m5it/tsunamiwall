@@ -14,8 +14,12 @@ class IptablesError(Exception):
     """Raised when an iptables command fails unexpectedly."""
 
 
-def run_iptables(*args: str) -> None:
-    """Run iptables with the given arguments, raising on error."""
+def run_iptables(*args: str, quiet: bool = False) -> None:
+    """Run iptables with the given arguments, raising on error.
+
+    Set *quiet=True* for best-effort cleanup commands whose failure is expected
+    and handled by the caller (e.g. deleting a rule that may not exist).
+    """
     cmd = ["iptables", "-w", "5"] + list(args)
     logger.debug("Running: %s", " ".join(shlex.quote(a) for a in cmd))
     try:
@@ -26,7 +30,8 @@ def run_iptables(*args: str) -> None:
         raise IptablesError(msg) from exc
     if result.returncode != 0:
         msg = f"iptables failed ({result.returncode}): {result.stderr.strip()}"
-        logger.error(msg)
+        if not quiet:
+            logger.error(msg)
         raise IptablesError(msg)
 
 
@@ -73,7 +78,7 @@ def _install_jump_if_missing(chain: str) -> None:
 def _remove_jump(chain: str) -> None:
     """Remove any jump to *chain* from INPUT without failing if absent."""
     try:
-        run_iptables("-D", "INPUT", "-j", chain)
+        run_iptables("-D", "INPUT", "-j", chain, quiet=True)
     except IptablesError:
         pass
 

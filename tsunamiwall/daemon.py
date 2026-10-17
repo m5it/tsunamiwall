@@ -29,8 +29,9 @@ logger = logging.getLogger("tsunamiwall.daemon")
 class Daemon:
     """Main TsunamiWall daemon."""
 
-    def __init__(self, cfg: Config | None = None):
+    def __init__(self, cfg: Config | None = None, *, config_path: str | None = None):
         self.cfg = cfg or default_config()
+        self.config_path = config_path
         self.honeypots: dict[int, HoneypotServer] = {}
         self.allowed_ports: set[int] = set()
         self.allowed_per_ip: dict[str, set[int]] = {}
@@ -394,6 +395,7 @@ class Daemon:
         if action == "status":
             return {
                 "ok": True,
+                "config_path": self.config_path,
                 "config": {
                     "honeypot_start": self.cfg.honeypot_start,
                     "honeypot_end": self.cfg.honeypot_end,
@@ -529,7 +531,7 @@ def run_daemon(*, cfg_path: str | None = None) -> None:
     cfg = load_config(cfg_path)
     _raise_fd_limit(cfg.max_honeypots + 128)
 
-    daemon = Daemon(cfg)
+    daemon = Daemon(cfg, config_path=cfg_path)
     try:
         asyncio.run(daemon.start())
     except KeyboardInterrupt:
