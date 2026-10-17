@@ -7,7 +7,7 @@ def test_build_rules_includes_per_ip(monkeypatch, tmp_path):
     """Per-IP allow rules should be added before global allow rules."""
     commands = []
 
-    def fake_run(*args):
+    def fake_run(*args, **kwargs):
         commands.append(args)
 
     monkeypatch.setattr("tsunamiwall.iptables.run_iptables", fake_run)
@@ -49,7 +49,7 @@ def test_build_rules_includes_per_ip(monkeypatch, tmp_path):
 def test_build_rules_empty_per_ip_ignored(monkeypatch):
     commands = []
 
-    def fake_run(*args):
+    def fake_run(*args, **kwargs):
         commands.append(args)
 
     monkeypatch.setattr("tsunamiwall.iptables.run_iptables", fake_run)

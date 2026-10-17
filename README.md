@@ -1,17 +1,14 @@
 :tsunami: # TsunamiWall
 
-Linux server firewall with built-in per-port honeypot listeners.
+Server firewall with built-in per-port honeypot listeners. Runs on Linux (`iptables`/`ip6tables`) and experimentally on macOS (`pfctl`).
 
 ## What it does
 - **Blocks** all unsolicited inbound traffic by default.
 - **Allows** traffic only to real listening services and explicitly allowed ports.
 - **Drops + logs** every unwanted probe.
-- **Opens stealth honeypot listeners** on unused high ports (`10000-65535`) to catch and record attacker behavior.
+- **Opens stealth honeypot listeners** on unused TCP ports (default `10000-65535`, configurable down to port 1) to catch and record attacker behavior.
 - **Captures attacker payloads** and stores them per country / per IP.
 - Provides a simple CLI, a live TUI, config-file support, and an emergency reset for safety.
-
-## Status
-Early development — v1 focuses on IPv4, TCP/UDP listening socket discovery, `iptables` backend, manual CLI, and honeypot threat visibility.
 
 ## Quick start
 
@@ -60,7 +57,7 @@ For an all-in-one start, use the included `start.sh` script. It starts the daemo
 |---|---|
 | `start` | Run the daemon in the foreground (needs root) |
 | `stop` | Gracefully stop the daemon and save runtime state |
-| `status` | Show allowed/blocked ports and active honeypots |
+| `status` | Show active config file, allowed/blocked ports, and active honeypots |
 | `watch` | Live full-screen TUI of honeypot hits |
 | `logs` | Show recent honeypot hits |
 | `allow <port>` / `allow --file <path>` | Allow one or many ports |
@@ -69,7 +66,7 @@ For an all-in-one start, use the included `start.sh` script. It starts the daemo
 | `deny <port> --ip <IP/CIDR>` | Remove a per-source-IP allowed port |
 | `block <port>` / `block --file <path>` | Block a port (drop traffic even if a service listens) |
 | `unblock <port>` / `unblock --file <path>` | Remove a blocked port |
-| `reset` | Emergency stop + flush all TsunamiWall iptables rules |
+| `reset` | Emergency stop + flush all TsunamiWall firewall rules |
 
 ## Configuration file
 
@@ -80,7 +77,9 @@ TsunamiWall reads YAML configuration from (in order):
 3. `/etc/tsunamiwall/config.yaml`
 4. `~/.config/tsunamiwall/config.yaml`
 
-Key options include `trusted_ips`, `auto_block_listeners`, `honeypot_start`/`honeypot_end`, `max_honeypots`, and payload capture settings.
+Key options include `trusted_ips`, `auto_block_listeners`, `honeypot_start`/`honeypot_end`, `max_honeypots`, payload capture settings, log rotation settings, `enable_ipv6` for dual-stack hosts, and `firewall_backend`/`pfctl_anchor` for cross-platform support.
+
+> **Note on `auto_block_listeners`:** the default is `false`, which means TsunamiWall automatically allows every listening socket it discovers. This is convenient for setup but not a strict default-deny policy. Set it to `true` after adding your management IP to `trusted_ips` for a real default-deny posture.
 
 ## Architecture
 
@@ -89,18 +88,18 @@ Key options include `trusted_ips`, `auto_block_listeners`, `honeypot_start`/`hon
 |  CLI/TUI |  ---------------------->|  tsunamiwall daemon  |
 +----------+                         |  - discovery loop    |
                                      |  - honeypot servers  |
-                                     |  - iptables backend  |
+                                     |  - firewall backend  |
                                      +----------+-----------+
                                                 |
                                                 v
                                      +----------+-----------+
-                                     |      iptables        |
-                                     |  TSUNAMIWALL chain   |
+                                     |  iptables / pfctl  |
+                                     |  TSUNAMIWALL chain |
                                      +----------------------+
 ```
 
 - **Daemon**: `asyncio`-based, watches listening sockets, manages honeypot listeners.
-- **Firewall backend**: `iptables` via a dedicated `TSUNAMIWALL` chain.
+- **Firewall backend**: pluggable `iptables`/`ip6tables` on Linux or `pfctl` anchors on macOS, configured with `firewall_backend`. Default is `auto`.
 - **CLI/TUI**: Unix-socket client talking to the daemon.
 - **Payload logging**: captured data is written to `/var/log/tsunamiwall/bycountry/{CC}/{IP}/`.
 - **Log viewer script**: `scripts/tsunamiwall-logs` makes it easy to inspect hits and payloads.
@@ -111,18 +110,23 @@ The `scripts/tsunamiwall-logs` script reads the JSONL hit log and the per-countr
 payload tree without needing the daemon socket:
 
 ```bash
-scripts/tsunamiwall-logs recent               # last 50 hits
-scripts/tsunamiwall-logs recent 20            # last 20 hits
-scripts/tsunamiwall-logs tail                 # follow the hit log live
+scripts/tsunamiwall-logs recent                # last 50 hits (newest first)
+scripts/tsunamiwall-logs recent 20             # last 20 hits
+scripts/tsunamiwall-logs tail                  # follow the hit log live (reopens on rotation)
 scripts/tsunamiwall-logs by-ip 1.2.3.4
 scripts/tsunamiwall-logs by-country US
 scripts/tsunamiwall-logs by-dst 10005
-scripts/tsunamiwall-logs payloads 1.2.3.4     # show captured payloads for an IP
-scripts/tsunamiwall-logs stats                # top IPs, countries and ports
-scripts/tsunamiwall-logs dropped              # top dropped destination ports
-scripts/tsunamiwall-logs recent-payloads      # recent hits with payload previews
+scripts/tsunamiwall-logs payloads 1.2.3.4              # show captured payloads for an IP
+scripts/tsunamiwall-logs payloads 10 by-ip 1.2.3.4     # 10 most recent payloads for an IP
+scripts/tsunamiwall-logs payloads 5 by-country US       # 5 most recent payloads from a country
+scripts/tsunamiwall-logs payloads 3 by-dst 22          # 3 most recent payloads on destination port 22
+scripts/tsunamiwall-logs stats                 # top IPs, countries and ports
+scripts/tsunamiwall-logs dropped               # top dropped destination ports
+scripts/tsunamiwall-logs recent-payloads       # recent hits with payload previews
 scripts/tsunamiwall-logs recent-payloads 10 --bytes 200
 ```
+
+> The daemon writes logs under `/var/log/tsunamiwall` as root. The `scripts/tsunamiwall-logs` wrapper automatically re-executes with `sudo` when the log directory is not readable by your user, so you can usually run it without prefixing `sudo` yourself. If you prefer not to elevate, set a user-owned `log_dir` in your config.
 
 ## Documentation
 - `docs/usage.md` — installation, commands, and tuning.

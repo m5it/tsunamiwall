@@ -1,4 +1,4 @@
-"""Asyncio honeypot listener for unused high ports."""
+"""Asyncio honeypot listener for unused TCP ports."""
 
 from __future__ import annotations
 
@@ -23,7 +23,9 @@ class HitEvent:
     src_port: int
     dst_port: int
     proto: str
+    family: str = "ipv4"
     country_code: str = "UNKNOWN"
+    payload_size: int = 0
     action: str = "honeypot_hit"
 
 
@@ -56,6 +58,10 @@ class HoneypotServer:
         self.server: asyncio.Server | None = None
 
     async def start(self) -> None:
+        # Bind to IPv4 only. Using host=None causes asyncio to try both IPv4 and
+        # IPv6, which doubles file-descriptor usage and can exhaust fds when
+        # max_honeypots is high. IPv6 handling is done via the firewall backend,
+        # not honeypot listeners.
         self.server = await asyncio.start_server(
             self._handle,
             host="0.0.0.0",
@@ -76,6 +82,9 @@ class HoneypotServer:
         sockname = writer.get_extra_info("sockname")
         src_ip, src_port = peer[0], peer[1]
         dst_port = sockname[1]
+        # peer[0] for IPv6 contains the scoped address with %interface; strip it.
+        src_ip = src_ip.split("%", 1)[0]
+        family = "ipv6" if ":" in src_ip else "ipv4"
         now = _iso_now()
 
         # Optional payload capture.
@@ -111,13 +120,17 @@ class HoneypotServer:
             country = country_code(src_ip)
         except Exception:
             country = "UNKNOWN"
+
+        payload_size = len(session.payload) if session is not None else 0
         event = HitEvent(
             time=now,
             src_ip=src_ip,
             src_port=src_port,
             dst_port=dst_port,
+            family=family,
             proto="tcp",
             country_code=country,
+            payload_size=payload_size,
         )
         self.log_hit(event)
 
@@ -157,17 +170,28 @@ def default_payload_writer(cfg: Config) -> Callable[[PayloadSession], None]:
         if not session.payload:
             return
 
+        try:
+            base_dir.mkdir(parents=True, exist_ok=True, mode=0o750)
+        except PermissionError:
+            # The daemon may not own payload_log_dir if the directory was created
+            # by a different user; skip silently rather than crashing the honeypot.
+            logger.warning(
+                "Cannot create payload directory %s: permission denied. Payloads will not be saved.",
+                base_dir,
+            )
+            return
+
         cc = country_code(session.src_ip)
         session.country = cc
         safe_ip = sanitize_ip(session.src_ip)
         ip_dir = base_dir / cc / safe_ip
         ip_dir.mkdir(parents=True, exist_ok=True, mode=0o750)
 
-        # Use sub-second timestamp + destination port to avoid overwriting
-        # multiple probes from the same IP to the same port in the same second.
-        ts = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
-        subsec = int(time.time() * 1_000_000) % 1_000_000
-        filename = f"{ts.replace(':', '-')}.{subsec:06d}_{session.dst_port}_{session.src_port}.bin"
+        # Use a monotonic nanosecond-resolution timestamp + destination port +
+        # source port to guarantee a unique filename even if many probes arrive
+        # from the same source IP/port in the same microsecond.
+        ns = time.time_ns()
+        filename = f"{ns}_{session.dst_port}_{session.src_port}.bin"
         payload_path = ip_dir / filename
         payload_path.write_bytes(session.payload)
 

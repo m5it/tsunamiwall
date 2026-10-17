@@ -29,3 +29,19 @@ def test_safe_ports_respects_max():
     cfg = Config(honeypot_start=10_000, honeypot_end=65_535, max_honeypots=5)
     available = safe_ports(set(), cfg)
     assert len(available) == 5
+
+
+def test_low_honeypot_ports_are_allowed():
+    """Privileged honeypot ports are valid when explicitly configured."""
+    cfg = Config(honeypot_start=1, honeypot_end=1024, max_honeypots=100)
+    assert cfg.honeypot_start == 1
+    assert cfg.honeypot_end == 1024
+
+
+def test_safe_ports_excludes_used_low_ports():
+    """Even with low ports enabled, real services are never replaced."""
+    cfg = Config(honeypot_start=1, honeypot_end=100, max_honeypots=100)
+    used = {22, 80}
+    available = safe_ports(used, cfg)
+    assert 22 not in available
+    assert 80 not in available

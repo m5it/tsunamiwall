@@ -1,9 +1,10 @@
 # TsunamiWall Usage
 
 ## Requirements
-- Linux server with Python 3.10+
-- root privileges (for iptables and raw socket binding)
-- `iptables` installed
+- Linux server with Python 3.10+ (primary platform)
+- macOS with `pfctl` (experimental, v1.2.0+)
+- root privileges (for iptables/pfctl and raw socket binding)
+- `iptables` installed (Linux) or `pfctl` enabled (macOS)
 
 ## Installation
 
@@ -101,12 +102,18 @@ sudo .venv/bin/python main.py unblock 1337
 
 A globally `block`ed port is dropped and logged even if it is also in the `allow` list, allowed for a specific source IP/CIDR, or has a listening service. `block` overrides everything except `trusted_ips`.
 
-### Strict default-deny mode
-Add this to your config to stop TsunamiWall from automatically allowing every listening socket:
+### Default policy: auto-allow listeners
+By default (`auto_block_listeners: false`) every listening socket discovered by TsunamiWall is automatically allowed inbound. This is convenient for first-time setup because it does not lock you out of existing services, but it is **not** a strict default-deny firewall. If you want true default-deny:
+
+1. Add your management IP/CIDR to `trusted_ips` first.
+2. Set `auto_block_listeners: true`.
+3. Manually `allow` the ports you actually need.
+
 ```yaml
+trusted_ips:
+  - "203.0.113.45"
 auto_block_listeners: true
 ```
-In this mode only ports you explicitly `allow` are opened. Real services like SSH must be whitelisted manually, so make sure your management IP is in `trusted_ips` first.
 
 ### Allow a port only for a specific IP or CIDR
 ```bash
@@ -117,6 +124,47 @@ sudo .venv/bin/python main.py allow 8080 --ip 203.0.113.0/24
 The rule is inserted before global `allow` rules, so it only opens the port for traffic coming from that source address or network. Use `deny` with the same `--ip` to remove it later.
 
 Runtime allow/deny changes are persisted to `/run/tsunamiwall/daemon-state.json` and restored automatically when the daemon restarts, so your rules survive reboots or restarts (as long as `run_dir` is on persistent storage).
+
+### IPv6 support
+By default TsunamiWall only protects IPv4. On dual-stack hosts, add this to your config so TsunamiWall also manages an `ip6tables` chain with the same default-deny policy:
+```yaml
+enable_ipv6: true
+```
+Honeypots will then listen on both IPv4 and IPv6. Verify the IPv6 chain with:
+```bash
+sudo ip6tables -L TSUNAMIWALL6 -n
+```
+
+### macOS / pfctl support (experimental)
+TsunamiWall can drive the native macOS packet filter through `pfctl` anchors. Select the backend explicitly:
+```yaml
+firewall_backend: "pfctl"
+pfctl_anchor: "tsunamiwall"
+```
+Before starting the daemon you must reference the base anchor in `/etc/pf.conf` once:
+```
+anchor "tsunamiwall/*"
+```
+Then load the main ruleset:
+```bash
+sudo pfctl -f /etc/pf.conf
+```
+TsunamiWall only manages the contents of the `tsunamiwall/ipv4` and `tsunamiwall/ipv6` sub-anchors; it will not edit `/etc/pf.conf` automatically.
+
+`pfctl` logs blocked packets to the `pflog0` interface, not `dmesg`. On macOS inspect blocked traffic with:
+```bash
+sudo tcpdump -ni pflog0
+```
+
+### Log and payload rotation
+To control disk growth under heavy scans, tune these config keys:
+```yaml
+hit_log_max_bytes: 104857600      # rotate hits.logl after 100 MiB
+hit_log_max_backups: 5            # keep up to 5 rotated files
+payload_log_max_bytes: 1073741824 # cap total payload storage at 1 GiB
+log_rate_limit: 10                # iptables LOG packets/second
+log_rate_burst: 20               # initial LOG burst
+```
 
 ### View honeypot hits
 ```bash
@@ -163,32 +211,40 @@ To see the active allow/honeypot rules:
 ```bash
 ./run.sh status
 sudo iptables -L TSUNAMIWALL -n
+# if enable_ipv6 is true:
+sudo ip6tables -L TSUNAMIWALL6 -n
 ```
 
 To see which destination ports are being actively dropped/probed recently:
 ```bash
-sudo scripts/tsunamiwall-logs dropped
-sudo scripts/tsunamiwall-logs dropped 30   # top 30
+scripts/tsunamiwall-logs dropped
+scripts/tsunamiwall-logs dropped 30   # top 30
 sudo dmesg | scripts/extract-attack-ports.sh --dst-port
 ```
+Note: `dmesg`/`journald` will only contain rate-limited LOG entries from iptables. Use `scripts/tsunamiwall-logs` for the full hit log.
 
 ### Inspecting logs with `scripts/tsunamiwall-logs`
 
-The `scripts/tsunamiwall-logs` helper reads the JSONL hit log and the per-country payload tree without needing the daemon socket:
+The `scripts/tsunamiwall-logs` helper reads the JSONL hit log and the per-country payload tree without needing the daemon socket. It automatically re-executes with `sudo` when the configured `log_dir` is not readable by the current user, so in most cases you can run it without prefixing `sudo`:
 
 ```bash
-scripts/tsunamiwall-logs recent             # last 50 hits
+scripts/tsunamiwall-logs recent             # last 50 hits (newest first)
 scripts/tsunamiwall-logs recent 20          # last 20 hits
-scripts/tsunamiwall-logs tail               # follow the hit log live
+scripts/tsunamiwall-logs tail               # follow the hit log live (reopens on rotation)
 scripts/tsunamiwall-logs by-ip 1.2.3.4
 scripts/tsunamiwall-logs by-country US
 scripts/tsunamiwall-logs by-dst 10005
-scripts/tsunamiwall-logs payloads 1.2.3.4    # show payloads for an IP
+scripts/tsunamiwall-logs payloads 1.2.3.4              # payloads for an IP
+scripts/tsunamiwall-logs payloads 10 by-ip 1.2.3.4       # 10 most recent payloads for an IP
+scripts/tsunamiwall-logs payloads 5 by-country US        # 5 most recent payloads from a country
+scripts/tsunamiwall-logs payloads 3 by-dst 22           # 3 most recent payloads on destination port 22
 scripts/tsunamiwall-logs stats               # top IPs, countries and ports
 scripts/tsunamiwall-logs dropped             # top dropped destination ports
 scripts/tsunamiwall-logs recent-payloads     # recent hits with payload previews
 scripts/tsunamiwall-logs recent-payloads 10 --bytes 200
 ```
+
+If you prefer not to elevate, set a user-owned `log_dir` in your config.
 
 ### Emergency reset
 If anything goes wrong, this stops the daemon and flushes every TsunamiWall rule:
@@ -199,13 +255,13 @@ sudo .venv/bin/python tsunamiwall/emergency.py
 ```
 
 ## How it works
-1. The daemon scans `/proc/net/tcp` and `/proc/net/udp` every 30 seconds.
-2. By default, any port with a listening socket is allowed through iptables.
+1. The daemon scans listening sockets every 30 seconds. On Linux it reads `/proc/net/tcp` and `/proc/net/udp`; on macOS (or when `/proc/net` is unavailable) it falls back to `psutil`.
+2. By default, any port with a listening socket is allowed through the firewall.
 3. With `auto_block_listeners: true`, listening sockets are **not** auto-allowed; only explicitly `allow`ed ports are opened.
-4. Ports `10000-65535` that are not listening (or not in use in strict mode) are bound by silent asyncio honeypot servers.
+4. Ports in the configured `honeypot_start`/`honeypot_end` range that are not listening (or not in use in strict mode) are bound by silent asyncio honeypot servers. The default range is `10000-65535`; lower ports are allowed because the daemon runs as root, but verify no real service uses them.
 5. Ports added via `block` are dropped and logged even if a service listens on them.
 6. Each probe to a honeypot port is logged as JSON to `/var/log/tsunamiwall/hits.logl`.
-7. Everything else is dropped and logged by iptables.
+7. Everything else is dropped and logged by the configured firewall backend (`iptables` on Linux, `pfctl` on macOS).
 
 ## Configuration file
 
@@ -227,12 +283,16 @@ sudo .venv/bin/python main.py -c /etc/tsunamiwall/config.yaml start
 ./run.sh -c /etc/tsunamiwall/config.yaml start
 ```
 
+> **Config path is determined at daemon startup.** `run.sh` will use the file you pass with `-c`, or default to the caller's `~/.config/tsunamiwall/config.yaml`. Use `./run.sh status` to see the loaded `config_path` and confirm the daemon is using the file you expect.
+
 Key tunables:
-- `honeypot_start` / `honeypot_end` — honeypot port range.
+- `honeypot_start` / `honeypot_end` — honeypot port range (default `10000-65535`; set as low as `1` if you want to observe privileged ports).
 - `max_honeypots` — hard cap on listeners (default 900, safe for default Linux fd limits).
 - `discovery_interval` — how often to re-scan sockets.
 - `trusted_ips` — IPs/CIDRs that bypass all filtering. Put your management IP here.
 - `auto_block_listeners` — strict default-deny mode; listening sockets are not auto-allowed.
+- `firewall_backend` — `auto`, `iptables`, `pfctl`, or `noop`.
+- `pfctl_anchor` — base anchor name for the macOS `pfctl` backend.
 - Runtime `allow`/`deny`/`block` state is persisted to `<run_dir>/daemon-state.json`.
 
 ## Using a custom config with the CLI

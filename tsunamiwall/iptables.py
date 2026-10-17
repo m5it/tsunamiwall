@@ -14,8 +14,12 @@ class IptablesError(Exception):
     """Raised when an iptables command fails unexpectedly."""
 
 
-def run_iptables(*args: str) -> None:
-    """Run iptables with the given arguments, raising on error."""
+def run_iptables(*args: str, quiet: bool = False) -> None:
+    """Run iptables with the given arguments, raising on error.
+
+    Set *quiet=True* for best-effort cleanup commands whose failure is expected
+    and handled by the caller (e.g. deleting a rule that may not exist).
+    """
     cmd = ["iptables", "-w", "5"] + list(args)
     logger.debug("Running: %s", " ".join(shlex.quote(a) for a in cmd))
     try:
@@ -26,7 +30,8 @@ def run_iptables(*args: str) -> None:
         raise IptablesError(msg) from exc
     if result.returncode != 0:
         msg = f"iptables failed ({result.returncode}): {result.stderr.strip()}"
-        logger.error(msg)
+        if not quiet:
+            logger.error(msg)
         raise IptablesError(msg)
 
 
@@ -73,17 +78,14 @@ def _install_jump_if_missing(chain: str) -> None:
 def _remove_jump(chain: str) -> None:
     """Remove any jump to *chain* from INPUT without failing if absent."""
     try:
-        run_iptables("-D", "INPUT", "-j", chain)
+        run_iptables("-D", "INPUT", "-j", chain, quiet=True)
     except IptablesError:
         pass
 
 
-def _rollback_to_chain(chain: str) -> None:
-    """Restore the jump to an existing chain; used after a failed rebuild."""
-    try:
-        _install_jump_if_missing(chain)
-    except IptablesError:
-        logger.error("Failed to restore jump to %s after build failure", chain)
+def _rename_chain(old: str, new: str) -> None:
+    """Rename a user-defined chain; iptables updates all references automatically."""
+    run_iptables("-E", old, new)
 
 
 def build_rules(
@@ -93,6 +95,8 @@ def build_rules(
     trusted_ips: Iterable[str] | None = None,
     allowed_per_ip: dict[str, Iterable[int]] | None = None,
     blocked_ports: Iterable[int] | None = None,
+    log_rate_limit: int = 10,
+    log_rate_burst: int = 20,
 ) -> None:
     """Atomically rebuild the TsunamiWall chain using a shadow chain.
 
@@ -107,9 +111,11 @@ def build_rules(
       8. Log and drop everything else.
 
     The active chain is never flushed-empty during the update. Instead, a fresh
-    shadow chain is populated and then swapped in by moving the INPUT jump. If
-    any rule command fails, the shadow chain is discarded and the existing jump
-    (if any) remains in place so traffic continues to hit the previous ruleset.
+    shadow chain is populated and then swapped in. The INPUT jump is moved by
+    inserting the shadow jump first and removing the old jump second, so packets
+    never pass through a gap with no target. The chains are then renamed so the
+    active ruleset keeps the configured name. If any command fails, the previous
+    ruleset is restored under the configured chain name.
     """
     blocked = set(blocked_ports or ())
     allowed = sorted(set(allowed_ports) - blocked)
@@ -153,6 +159,12 @@ def build_rules(
                 "tcp",
                 "--dport",
                 str(port),
+                "-m",
+                "limit",
+                "--limit",
+                f"{log_rate_limit}/second",
+                "--limit-burst",
+                str(log_rate_burst),
                 "-j",
                 "LOG",
                 "--log-prefix",
@@ -168,6 +180,12 @@ def build_rules(
                 "udp",
                 "--dport",
                 str(port),
+                "-m",
+                "limit",
+                "--limit",
+                f"{log_rate_limit}/second",
+                "--limit-burst",
+                str(log_rate_burst),
                 "-j",
                 "LOG",
                 "--log-prefix",
@@ -188,8 +206,23 @@ def build_rules(
         # 7. Honeypot ports (TCP only in v1)
         for port in honeypots:
             run_iptables("-A", shadow, "-p", "tcp", "--dport", str(port), "-j", "ACCEPT")
-        # 8. Default drop with logging
-        run_iptables("-A", shadow, "-j", "LOG", "--log-prefix", "TSUNAMIWALL-DROP: ", "--log-level", "4")
+        # 8. Default drop with logging (rate-limited to avoid flooding dmesg)
+        run_iptables(
+            "-A",
+            shadow,
+            "-m",
+            "limit",
+            "--limit",
+            f"{log_rate_limit}/second",
+            "--limit-burst",
+            str(log_rate_burst),
+            "-j",
+            "LOG",
+            "--log-prefix",
+            "TSUNAMIWALL-DROP: ",
+            "--log-level",
+            "4",
+        )
         run_iptables("-A", shadow, "-j", "DROP")
     except IptablesError:
         logger.exception("Failed to populate shadow chain %s; leaving existing rules in place", shadow)
@@ -199,35 +232,43 @@ def build_rules(
             flush_chain(shadow)
         except IptablesError:
             pass
-        # Ensure the original chain is still jumped to.
-        _rollback_to_chain(chain)
-        raise
-
-    # Atomic swap: point INPUT at the shadow chain, then rename shadow to chain.
-    try:
-        _remove_jump(chain)
-        _install_jump_if_missing(shadow)
-    except IptablesError:
-        logger.exception("Failed to swap INPUT jump to shadow chain %s", shadow)
-        _remove_jump(shadow)
-        _rollback_to_chain(chain)
-        raise
-
-    try:
-        # Rename old chain out of the way, then rename shadow to the real name.
-        old = f"{chain}_OLD"
-        if _chain_exists(old):
-            run_iptables("-F", old)
-            run_iptables("-X", old)
-        run_iptables("-E", chain, old)
-        run_iptables("-E", shadow, chain)
-    except IptablesError:
-        logger.exception("Failed to rename chains %s/%s; attempting rollback", chain, shadow)
-        _remove_jump(shadow)
+        # Ensure the original chain is still jumped to by name.
         _install_jump_if_missing(chain)
         raise
 
-    # Finalize: remove the old chain and any stale jump to it.
+    # Atomic swap: activate the shadow ruleset without ever leaving INPUT
+    # without a target. We insert the shadow jump first, then remove the old
+    # one (brief overlap where both exist, but shadow is active). Finally we
+    # rename the chains so the active chain keeps the configured name and the
+    # old chain becomes chain_OLD for cleanup.
+    old = f"{chain}_OLD"
+    try:
+        if _chain_exists(old):
+            flush_chain(old)
+            run_iptables("-X", old)
+        _install_jump_if_missing(shadow)
+        _remove_jump(chain)
+        _rename_chain(chain, old)
+        _rename_chain(shadow, chain)
+    except IptablesError:
+        logger.exception("Atomic chain swap failed for %s", chain)
+        # Best-effort rollback: revert INPUT to the previous ruleset under the
+        # configured chain name. The order matters: restore the name, install a
+        # jump to it at the top, then strip the temporary shadow jump.
+        try:
+            if _chain_exists(old) and not _chain_exists(chain):
+                # Old ruleset was moved to chain_OLD and shadow->chain failed.
+                # Bring the old ruleset back to the configured name.
+                _rename_chain(old, chain)
+            # Ensure INPUT jumps to the chain named {chain} (old/previous rules).
+            _install_jump_if_missing(chain)
+            # Drop any remaining shadow jump so the next rebuild starts clean.
+            _remove_jump(shadow)
+        except IptablesError as rollback_exc:
+            logger.critical("Rollback after swap failure also failed: %s", rollback_exc)
+        raise
+
+    # Clean up the old chain and any stale jump to it.
     try:
         _remove_jump(old)
         if _chain_exists(old):

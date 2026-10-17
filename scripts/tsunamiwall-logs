@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Thin wrapper around scripts/tsunamiwall_logs.py for the CLI."""
+"""Thin wrapper around scripts/tsunamiwall_logs.py for the CLI.
+
+The daemon writes logs under /var/log/tsunamiwall as root, so this wrapper
+re-executes itself with sudo when the log directory is not readable by the
+current user. Users who prefer not to elevate can set a user-owned log_dir in
+their config.
+"""
 
 import os
 import sys
@@ -10,7 +16,29 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from scripts.tsunamiwall_logs import main
+from tsunamiwall.config import load_config
+
+
+def _need_sudo() -> bool:
+    """Return True if we are not root and the configured log_dir is unreadable."""
+    if os.geteuid() == 0:
+        return False
+    try:
+        cfg = load_config(None)
+        return not os.access(cfg.log_dir, os.R_OK)
+    except Exception:
+        return False
+
 
 if __name__ == "__main__":
+    if _need_sudo():
+        try:
+            os.execvp("sudo", ["sudo", sys.executable, __file__] + sys.argv[1:])
+        except FileNotFoundError:
+            # sudo is not installed; fall through and let the user see the
+            # normal permission error from the log viewer.
+            pass
+
+    from scripts.tsunamiwall_logs import main
+
     sys.exit(main())

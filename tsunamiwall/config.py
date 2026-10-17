@@ -15,6 +15,10 @@ import yaml
 class Config:
     """Immutable runtime configuration."""
 
+    # Port range used for honeypot listeners. The default starts at 10000 to
+    # avoid colliding with common system services. Lower values are allowed:
+    # the daemon runs as root and can bind privileged ports, but you should
+    # verify that no real service is listening on those ports first.
     honeypot_start: int = 10_000
     honeypot_end: int = 65_535
     discovery_interval: float = 30.0
@@ -31,8 +35,11 @@ class Config:
     trusted_ips: list[str] = field(default_factory=list)
     # When true, discovered listening ports are treated as blocked until they are
     # explicitly allowed. This gives a strict default-deny policy where every real
-    # service must be whitelisted. When false (the default), TsunamiWall behaves as
-    # an allow-list firewall: any listening socket is automatically allowed.
+    # service must be whitelisted. When false (the default), TsunamiWall behaves as an
+    # allow-list firewall: any listening socket is automatically allowed. The default is
+    # false for backwards compatibility and to avoid locking users out of existing
+    # services; security-focused deployments should set this to true and manually
+    # whitelist required services.
     auto_block_listeners: bool = False
     # Maximum payload bytes to read from each honeypot connection.
     payload_max_bytes: int = 4096
@@ -40,6 +47,27 @@ class Config:
     payload_read_timeout: float = 2.0
     # Directory under which per-country per-IP payload logs are stored.
     payload_log_dir: str = "/var/log/tsunamiwall/bycountry"
+    # Maximum on-disk size of hits.logl before rotation (bytes).
+    hit_log_max_bytes: int = 100 * 1024 * 1024  # 100 MiB
+    # Number of rotated hit log files to retain.
+    hit_log_max_backups: int = 5
+    # Maximum total bytes to keep in the payload log directory.
+    payload_log_max_bytes: int = 1024 * 1024 * 1024  # 1 GiB
+    # iptables LOG rate limit: average packets per second before bursting.
+    log_rate_limit: int = 10
+    # iptables LOG rate limit: initial burst packets.
+    log_rate_burst: int = 20
+    # When true, also manage an IPv6 chain with ip6tables. This protects dual-
+    # stack hosts. IPv6 honeypots listen on the same TCP ports as IPv4.
+    enable_ipv6: bool = False
+    # Firewall backend to use. "auto" selects iptables on Linux and pfctl on
+    # macOS. Other values: "iptables" (Linux IPv4/IPv6), "ip6tables" (Linux
+    # IPv6 only), "pfctl" (macOS), "noop" (no firewall rules; useful for
+    # testing or unsupported platforms).
+    firewall_backend: str = "auto"
+    # Base pfctl anchor name used when firewall_backend is "pfctl" or auto on
+    # macOS. The daemon uses sub-anchors <pfctl_anchor>/ipv4 and <pfctl_anchor>/ipv6.
+    pfctl_anchor: str = "tsunamiwall"
 
     def __post_init__(self):
         if not 1 <= self.honeypot_start <= 65535:
@@ -58,11 +86,29 @@ class Config:
             raise ValueError("payload_max_bytes must be positive")
         if self.payload_read_timeout <= 0:
             raise ValueError("payload_read_timeout must be positive")
+        if self.hit_log_max_bytes < 0:
+            raise ValueError("hit_log_max_bytes must be non-negative")
+        if self.hit_log_max_backups < 0:
+            raise ValueError("hit_log_max_backups must be non-negative")
+        if self.payload_log_max_bytes < 0:
+            raise ValueError("payload_log_max_bytes must be non-negative")
+        if self.log_rate_limit < 0:
+            raise ValueError("log_rate_limit must be non-negative")
+        if self.log_rate_burst < 0:
+            raise ValueError("log_rate_burst must be non-negative")
+        if self.firewall_backend not in {"auto", "iptables", "ip6tables", "pfctl", "noop"}:
+            raise ValueError("firewall_backend must be one of: auto, iptables, ip6tables, pfctl, noop")
+        if not self.pfctl_anchor:
+            raise ValueError("pfctl_anchor must not be empty")
         for ip in self.trusted_ips:
             try:
                 ipaddress.ip_network(ip, strict=False)
             except ValueError as exc:
                 raise ValueError(f"trusted_ips contains invalid IP/CIDR: {ip}") from exc
+
+    @property
+    def ipv6_chain(self) -> str:
+        return f"{self.iptables_chain}6"
 
     @property
     def hit_log_path(self) -> str:
@@ -142,7 +188,10 @@ def load_config(path: str | os.PathLike | None = None) -> Config:
     if config_path is None:
         return defaults
 
-    raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    try:
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Config file {config_path} is not valid YAML: {exc}") from exc
     if not isinstance(raw, dict):
         raise ValueError(f"Config file {config_path} must contain a YAML mapping")
 

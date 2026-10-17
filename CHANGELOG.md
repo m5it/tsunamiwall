@@ -4,7 +4,36 @@ All notable changes to TsunamiWall are documented in this file.
 
 ## [Unreleased] - current
 
-## [1.0.1] - 2026-10-15
+### Added
+- **Log viewer payload filters** — `scripts/tsunamiwall-logs payloads` now accepts `by-ip <IP>`, `by-country <CC>` and `by-dst <PORT>` filter terms, plus a bare count for `--last`, so commands like `payloads 3 by-ip 1.2.3.4 by-dst 22` work intuitively.
+
+### Fixed
+- **Log viewer ordering** — `recent`, `by-ip`, `by-country`, `by-dst` and `recent-payloads` now display hits newest-first (descending) instead of file-order.
+- **`tail` follows log rotation** — `scripts/tsunamiwall-logs tail` now detects when `hits.logl` is rotated and reopens the current file, so it no longer gets stuck on an old inode and misses new honeypot hits.
+- **Consistent log viewer time display** — hit times are now converted from UTC to local time before printing, so `tail`/`recent` timestamps match the payload mtime display and `date`.
+
+## [1.2.0] - 2026-10-17
+
+### Added
+- **macOS / pfctl firewall backend** — new `firewall_backend` config option. On macOS TsunamiWall can use the native `pfctl` anchor mechanism instead of `iptables`. Linux still defaults to `iptables`/`ip6tables`.
+- **Cross-platform service discovery** — socket discovery now prefers `psutil` when `/proc/net/tcp` and `/proc/net/udp` are unavailable (e.g. macOS).
+- **No-op backend** — `firewall_backend: noop` disables firewall rule management for testing or unsupported platforms.
+- **Per-hit IP family + payload size** — honeypot hit logs now include `family` (`ipv4` or `ipv6`) and `payload_size` fields so logs, the live TUI, and `tsunamiwall-logs` can distinguish IPv4/IPv6 probes and show whether a payload was captured without needing to read disk.
+- **Configurable low-port honeypots** — the honeypot port range (`honeypot_start`/`honeypot_end`) can now be set as low as port 1. The daemon runs as root and can bind privileged ports; a warning is logged when a honeypot binds to a port below 1024.
+- **Status shows active config + config path** — `./run.sh status` now reports the full configuration the daemon is running with and the path of the config file it loaded, so it is easy to verify which file is in use.
+- **Log viewer sudo wrapper** — `scripts/tsunamiwall-logs` now re-executes itself with `sudo` when the configured `log_dir` is not readable by the current user, so you do not need to prefix `sudo` manually. If `sudo` is unavailable, it falls back to running normally and reports the permission error.
+
+### Fixed
+- **Linux startup file-descriptor exhaustion** — honeypot listeners now bind to `0.0.0.0` (IPv4 only) instead of dual-stack. This halves socket usage and prevents `OSError: Too many open files` during firewall rule generation when `max_honeypots` is near the default file-descriptor limit.
+- **Unique payload filenames** — payload files are now named with a nanosecond-resolution timestamp + destination port + source port so multiple probes from the same IP in the same second never overwrite each other.
+- **Accurate payload matching in log viewer** — `tsunamiwall-logs recent-payloads` now matches files by `dst_port` + `src_port` and picks the file whose mtime is closest to the hit time, instead of guessing by date prefix.
+- **Payload write error handling** — the daemon now logs `PermissionError` and other payload-write exceptions instead of silently dropping captured bytes.
+- **Truly atomic iptables cutover** — the shadow chain jump is now inserted into `INPUT` *before* the old chain jump is removed, so there is never a gap where packets bypass TsunamiWall. Chain renames then give the active ruleset the configured name. If a rename fails, the previous ruleset is restored under the configured chain name.
+- **run.sh defaults to the caller's config** — when `run.sh` is invoked without `-c`/`--config`, it now defaults to the caller's own `~/.config/tsunamiwall/config.yaml` before elevating with `sudo`. This prevents `sudo` from changing `$HOME` to `/root` and loading a different config file than the user expects.
+- **Graceful stop with stale socket** — `tsunamiwall stop` now catches `DaemonUnreachable` when the socket file exists but no daemon is listening, removes the stale socket, and reports the situation cleanly instead of crashing with a traceback.
+- **Clearer YAML parse errors** — invalid YAML in a config file now produces a readable `ValueError` instead of a raw PyYAML traceback.
+
+## [1.1.0] - 2026-10-16
 
 ### Fixed
 - **Signal shutdown cleanup** — SIGTERM/Ctrl+C now route through the same `stop()` cleanup path as the CLI `stop` command, so firewall rules are flushed, state is saved, and the PID file is removed.
@@ -15,50 +44,16 @@ All notable changes to TsunamiWall are documented in this file.
 - **Emergency reset honors custom config** — `emergency_reset()` now accepts a config object and uses its `iptables_chain` and `run_dir`. `cmd_reset` passes the loaded config through, so a custom chain is properly flushed when the daemon is unreachable.
 - **Payload file uniqueness + empty-payload skip** — payload filenames now include sub-second microsecond precision and source port, so rapid probes from the same IP no longer overwrite each other. Empty/timed-out payloads are no longer written to disk or metadata; they remain visible in the hit log only.
 
-## [1.0.0] - 2026-10-14
-
 ### Added
-- **Core daemon** — asyncio-based daemon that scans listening sockets every 30 seconds and reconciles `iptables` rules + honeypot listeners.
-- **iptables backend** — all TsunamiWall rules live in a dedicated `TSUNAMIWALL` chain jumped from `INPUT`. Supports loopback, established/related, per-source-IP ports, real service ports, honeypot ports, drop + log.
-- **Honeypot listeners** — silent TCP listeners on unused high ports (`10000-65535`, max 900 by default). Each connection is logged as JSON to `/var/log/tsunamiwall/hits.logl`.
-- **CLI** — `start`, `status`, `logs`, `allow`, `deny`, `reset`, plus `--config`/`-c` support.
-- **Config file** — YAML config loaded from `--config`, `TSUNAMIWALL_CONFIG`, `/etc/tsunamiwall/config.yaml`, or `~/.config/tsunamiwall/config.yaml`.
-- **Trusted IPs** — `trusted_ips` list allows selected source IPs/CIDRs to bypass all filtering.
-- **Per-IP allow/deny** — `allow <port> --ip <IP/CIDR>` and `deny <port> --ip <IP/CIDR>` restrict ports to a single source address or network.
-- **Runtime state persistence** — `allowed_ports`, `allowed_per_ip`, and `blocked_ports` are saved to `/run/tsunamiwall/daemon-state.json` and restored on daemon startup.
-- **Auto-block listeners mode** — `auto_block_listeners: true` in config makes TsunamiWall default-deny for all listening sockets; only explicitly allowed ports are opened.
-- **`block`/`unblock` CLI** — explicitly block a port (drop traffic even if a service listens) or unblock it.
-- **`stop` CLI + graceful shutdown in `start.sh`** — pressing `q` in the TUI now runs `stop`, which saves runtime state before exiting (instead of `reset`, which deleted state).
-- **Port files** — `allow --file` and `deny --file` accept a text file with one port per line.
-- **Emergency reset** — `reset` command falls back to a direct iptables flush if the daemon is not reachable.
-- **Live TUI** — `watch` subcommand opens a `curses` full-screen table of honeypot hits in real time.
-- **Payload capture + country grouping** — reads up to `payload_max_bytes` from each probe and writes raw bytes plus metadata to `/var/log/tsunamiwall/bycountry/{CC}/{IP}/`.
-- **Offline country lookup** — `iptocc` integration resolves attacker country codes; country code is now recorded directly on every honeypot hit log entry.
-- **Convenience wrappers** — `run.sh` and `run-dev.sh` run TsunamiWall as root using the local `.venv` Python.
-- **Log analysis scripts** — `scripts/extract-attack-ports.sh` extracts unique source ports/IPs/destination ports from `dmesg` drop logs; `scripts/tsunamiwall-logs` provides a friendly CLI to inspect hits, payloads, payload previews inline with recent hits, and recently dropped destination ports.
-- **Tests** — pytest suite covering config, discovery, honeypot, iptables, CLI, TUI, trusted IPs, payload logging, per-IP allow rules, log viewer, and reset fallback.
+- **Log rotation** — `hits.logl` is rotated when it exceeds `hit_log_max_bytes` (default 100 MiB); up to `hit_log_max_backups` old files are kept.
+- **Payload retention cap** — `cleanup_payloads` removes oldest `.bin` files when total payload storage exceeds `payload_log_max_bytes` (default 1 GiB). Metadata `sessions.logl` files are preserved.
+- **Rate-limited firewall logging** — all iptables `LOG` rules use `-m limit` with configurable `log_rate_limit` / `log_rate_burst` to prevent `dmesg`/journal flooding under heavy scans.
+- New module `tsunamiwall/rotation.py` and tests `tests/test_rotation.py`, `tests/test_rate_limited_logging.py`.
+- **IPv6 support** — new `enable_ipv6: true` config option. When enabled, TsunamiWall also manages an `ip6tables` chain with the same policy as IPv4, and honeypots bind to all addresses. By default only IPv4 is protected and IPv6 traffic is left untouched; this is now explicitly documented.
+- **CLI `allow --ip`** — per-source-IP allow rules via `tsunamiwall allow \u003cport\u003e --ip \u003cIP/CIDR\u003e` and matching `deny --ip` removal.
+- **CLI response robustness** — `cmd_status` now catches socket errors and prints a clear message when the daemon is unreachable.
+- **Per-IP allow persistence** — per-source-IP allow rules are included in `daemon-state.json` and restored on startup.
 
-### Fixed
-- **Graceful shutdown** — added timeouts to daemon stop, honeypot teardown, and iptables commands; falls back to hard exit after 10 seconds if shutdown hangs.
-- **Signal shutdown cleanup** — SIGTERM/Ctrl+C now route through the same `stop()` cleanup path as the CLI `stop` command, so firewall rules are flushed, state is saved, and the PID file is removed.
-- **Reset against dead daemon** — `reset` now correctly falls back to emergency flush when the daemon socket exists but no process is listening.
-- **Derived run-time paths** — `socket_path` and `pid_path` are now derived from `run_dir` instead of being independent config options. Old configs that still contain them are accepted but ignored.
-- **Global `block` precedence** — a globally `block`ed port now overrides auto-discovered services, explicit `allow` rules, and per-source-IP `allow` rules. Blocked ports are also excluded from the honeypot pool.
+## [1.0.0] - 2026-10-11
 
-## [1.0.0] - 2026-10-14
-
-First stable release. TsunamiWall now provides a complete server firewall + honeypot workflow:
-
-- Default-deny `iptables` firewall in a dedicated `TSUNAMIWALL` chain.
-- Asyncio daemon with honeypot listeners on unused high ports.
-- CLI: `start`, `stop`, `status`, `watch`, `logs`, `allow`, `deny`, `block`, `unblock`, `reset`.
-- Per-source-IP/CIDR allow rules and global `block` rules.
-- `auto_block_listeners: true` strict default-deny mode.
-- Runtime state persistence across restarts.
-- Payload capture grouped by country and source IP.
-- Live `curses` TUI and `scripts/tsunamiwall-logs` viewer with text + hex payload previews.
-- Emergency reset and `start.sh` one-command start/TUI/stop wrapper.
-
-## v0.1.0 - initial scaffold
-
-- Project created with package structure, `pyproject.toml`, and basic documentation.
+Initial release.

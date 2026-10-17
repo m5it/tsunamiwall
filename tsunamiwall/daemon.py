@@ -14,13 +14,14 @@ from typing import Any
 
 from .config import Config, default_config, safe_ports
 from .discovery import discover_ports
+from .firewall import get_backend
 from .honeypot import (
     HitEvent,
     HoneypotServer,
     default_payload_writer,
     jsonl_formatter,
 )
-from .iptables import build_rules, reset
+from .rotation import cleanup_payloads, rotate_hit_log
 
 logger = logging.getLogger("tsunamiwall.daemon")
 
@@ -28,8 +29,9 @@ logger = logging.getLogger("tsunamiwall.daemon")
 class Daemon:
     """Main TsunamiWall daemon."""
 
-    def __init__(self, cfg: Config | None = None):
+    def __init__(self, cfg: Config | None = None, *, config_path: str | None = None):
         self.cfg = cfg or default_config()
+        self.config_path = config_path
         self.honeypots: dict[int, HoneypotServer] = {}
         self.allowed_ports: set[int] = set()
         self.allowed_per_ip: dict[str, set[int]] = {}
@@ -39,11 +41,18 @@ class Daemon:
         self._cleanup_done = asyncio.Event()
         self._server: asyncio.Server | None = None
         self._hit_log_fh = self._open_hit_log()
-        self._payload_callback = default_payload_writer(self.cfg)
+        self._payload_writer = default_payload_writer(self.cfg)
+        self._firewall = get_backend(self.cfg, family="ipv4")
+        self._firewall_ipv6 = get_backend(self.cfg, family="ipv6") if self.cfg.enable_ipv6 else None
         self._load_state()
 
     def _open_hit_log(self):
         os.makedirs(self.cfg.log_dir, exist_ok=True, mode=0o750)
+        rotate_hit_log(
+            self.cfg.hit_log_path,
+            self.cfg.hit_log_max_bytes,
+            self.cfg.hit_log_max_backups,
+        )
         return open(self.cfg.hit_log_path, "a", encoding="utf-8", buffering=1)
 
     def _log_hit(self, event: HitEvent) -> None:
@@ -51,6 +60,32 @@ class Daemon:
         self._hit_log_fh.write(line + "\n")
         self._hit_log_fh.flush()
         logger.info("Honeypot hit: %s", line)
+
+    def _payload_callback(self, session) -> None:
+        """Write a captured payload to disk and rotate payload storage."""
+        try:
+            self._payload_writer(session)
+        except PermissionError as exc:
+            logger.warning(
+                "Cannot write payload for %s:%d to %s: %s",
+                session.src_ip,
+                session.src_port,
+                self.cfg.payload_log_dir,
+                exc,
+            )
+        except Exception:
+            logger.exception(
+                "Payload write failed for %s:%d",
+                session.src_ip,
+                session.src_port,
+            )
+        try:
+            cleanup_payloads(
+                self.cfg.payload_log_dir,
+                self.cfg.payload_log_max_bytes,
+            )
+        except Exception:
+            logger.exception("Payload retention cleanup failed")
 
     async def start(self) -> None:
         os.makedirs(self.cfg.run_dir, exist_ok=True, mode=0o750)
@@ -188,16 +223,40 @@ class Daemon:
                 pass
             self._save_state()
             self._remove_pid()
-            reset(self.cfg.iptables_chain)
+            self._firewall.reset(self.cfg.iptables_chain, family="ipv4")
+            if self._firewall_ipv6 is not None:
+                try:
+                    self._firewall_ipv6.reset(self.cfg.ipv6_chain, family="ipv6")
+                except Exception:
+                    logger.exception("IPv6 reset during stop failed")
             logger.info("TsunamiWall daemon stopped")
             self._cleanup_done.set()
 
     async def _discovery_loop(self) -> None:
+        iterations = 0
         while not self._stop_event.is_set():
             try:
                 await self._reconcile()
             except Exception:
                 logger.exception("Discovery/reconcile failed")
+
+            # Periodically rotate the hit log and enforce payload retention.
+            iterations += 1
+            if iterations % 10 == 0:
+                try:
+                    self._hit_log_fh.flush()
+                    rotated = rotate_hit_log(
+                        self.cfg.hit_log_path,
+                        self.cfg.hit_log_max_bytes,
+                        self.cfg.hit_log_max_backups,
+                    )
+                    if rotated is not None:
+                        self._hit_log_fh.close()
+                        self._hit_log_fh = self._open_hit_log()
+                    cleanup_payloads(self.cfg.payload_log_dir, self.cfg.payload_log_max_bytes)
+                except Exception:
+                    logger.exception("Log/payload rotation failed")
+
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=self.cfg.discovery_interval)
             except asyncio.TimeoutError:
@@ -237,6 +296,11 @@ class Daemon:
             except OSError as exc:
                 logger.warning("Could not bind honeypot on TCP/%d: %s", port, exc)
                 continue
+            if port < 1024:
+                logger.warning(
+                    "Honeypot bound to privileged port TCP/%d; ensure no real service uses this port",
+                    port,
+                )
             self.honeypots[port] = hp
 
         # Stop honeypots that are now real services or outside allowed range.
@@ -251,14 +315,35 @@ class Daemon:
             for ip, ports in self.allowed_per_ip.items()
             if ports - blocked
         }
-        build_rules(
+        self._firewall.build_rules(
             self.cfg.iptables_chain,
             managed_allowed,
             honeypot_ports,
             trusted_ips=self.cfg.trusted_ips,
             allowed_per_ip=allowed_per_ip,
             blocked_ports=self.blocked_ports,
+            log_rate_limit=self.cfg.log_rate_limit,
+            log_rate_burst=self.cfg.log_rate_burst,
+            family="ipv4",
         )
+
+        # IPv6 chain mirrors IPv4 policy when enabled.
+        if self._firewall_ipv6 is not None:
+            try:
+                self._firewall_ipv6.build_rules(
+                    self.cfg.ipv6_chain,
+                    managed_allowed,
+                    honeypot_ports,
+                    trusted_ips=self.cfg.trusted_ips,
+                    allowed_per_ip=allowed_per_ip,
+                    blocked_ports=self.blocked_ports,
+                    log_rate_limit=self.cfg.log_rate_limit,
+                    log_rate_burst=self.cfg.log_rate_burst,
+                    family="ipv6",
+                )
+            except Exception:
+                logger.exception("IPv6 rule build failed")
+
         logger.info("Reconciled: allowed=%s honeypots=%d", sorted(managed_allowed), len(honeypot_ports))
         self._save_state()
 
@@ -310,6 +395,29 @@ class Daemon:
         if action == "status":
             return {
                 "ok": True,
+                "config_path": self.config_path,
+                "config": {
+                    "honeypot_start": self.cfg.honeypot_start,
+                    "honeypot_end": self.cfg.honeypot_end,
+                    "max_honeypots": self.cfg.max_honeypots,
+                    "discovery_interval": self.cfg.discovery_interval,
+                    "iptables_chain": self.cfg.iptables_chain,
+                    "log_dir": self.cfg.log_dir,
+                    "run_dir": self.cfg.run_dir,
+                    "payload_max_bytes": self.cfg.payload_max_bytes,
+                    "payload_read_timeout": self.cfg.payload_read_timeout,
+                    "payload_log_dir": self.cfg.payload_log_dir,
+                    "hit_log_max_bytes": self.cfg.hit_log_max_bytes,
+                    "hit_log_max_backups": self.cfg.hit_log_max_backups,
+                    "payload_log_max_bytes": self.cfg.payload_log_max_bytes,
+                    "log_rate_limit": self.cfg.log_rate_limit,
+                    "log_rate_burst": self.cfg.log_rate_burst,
+                    "enable_ipv6": self.cfg.enable_ipv6,
+                    "firewall_backend": self.cfg.firewall_backend,
+                    "pfctl_anchor": self.cfg.pfctl_anchor,
+                    "auto_block_listeners": self.cfg.auto_block_listeners,
+                    "trusted_ips": sorted(self.cfg.trusted_ips),
+                },
                 "allowed_ports": sorted(self.allowed_ports),
                 "allowed_per_ip": {
                     ip: sorted(ports) for ip, ports in sorted(self.allowed_per_ip.items())
@@ -390,6 +498,22 @@ class Daemon:
         return {"ok": False, "error": "unknown action"}
 
 
+def _raise_fd_limit(minimum: int) -> None:
+    """Raise the soft file-descriptor limit to at least *minimum*."""
+    try:
+        import resource
+
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        target = max(soft, minimum)
+        if target > hard:
+            target = hard
+        if target > soft:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+            logger.info("Raised file-descriptor limit to %d", target)
+    except Exception:
+        logger.debug("Could not raise file-descriptor limit", exc_info=True)
+
+
 def run_daemon(*, cfg_path: str | None = None) -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -399,10 +523,15 @@ def run_daemon(*, cfg_path: str | None = None) -> None:
         logger.error("TsunamiWall daemon must run as root")
         sys.exit(1)
 
+    # Raise the soft file-descriptor limit to at least max_honeypots + buffer.
+    # This prevents Too many open files when binding many honeypots and then
+    # running firewall subprocesses.
     from .config import load_config
 
     cfg = load_config(cfg_path)
-    daemon = Daemon(cfg)
+    _raise_fd_limit(cfg.max_honeypots + 128)
+
+    daemon = Daemon(cfg, config_path=cfg_path)
     try:
         asyncio.run(daemon.start())
     except KeyboardInterrupt:

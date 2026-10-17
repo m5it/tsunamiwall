@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tsunamiwall"
-version = "1.0.1"
+version = "1.2.0"
 description = "Linux server firewall with stealth per-port honeypot listeners"
 readme = "README.md"
 license = {text = "MIT"}

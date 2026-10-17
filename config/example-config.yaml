@@ -3,6 +3,12 @@
 # and edit as needed. All keys are optional; missing values use built-in defaults.
 
 # Port range used for honeypot listeners.
+# The default starts at 10000 to avoid common system services. Lower values are
+# allowed because the daemon runs as root and can bind privileged ports, but
+# you should first confirm those ports are not used by real services.
+# Example for observing SSH scanners (port 2222) and other low ports:
+#   honeypot_start: 1
+#   honeypot_end: 65535
 honeypot_start: 10000
 honeypot_end: 65535
 
@@ -28,6 +34,10 @@ trusted_ips: []
 # automatically allowed; only ports explicitly added with `allow` are opened.
 # Use this for a stricter firewall posture. Default is false.
 auto_block_listeners: false
+# SECURITY NOTE: leaving this false means every listening socket (SSH, web,
+# database, etc.) is automatically allowed inbound. Set to true and add your
+# management IP to trusted_ips before enabling on production servers if you
+# want a real default-deny policy.
 
 # Payload capture from honeypot connections.
 # When enabled, TsunamiWall reads up to payload_max_bytes from each probe and
@@ -42,3 +52,26 @@ log_dir: "/var/log/tsunamiwall"
 run_dir: "/run/tsunamiwall"
 hit_log_name: "hits.logl"
 # socket_path and pid_path are derived from run_dir and are no longer configurable.
+
+# Log/payload rotation and rate limiting.
+hit_log_max_bytes: 104857600      # 100 MiB per hits.logl before rotation
+hit_log_max_backups: 5            # keep hits.logl.1 through .5
+payload_log_max_bytes: 1073741824 # 1 GiB total payload storage cap
+log_rate_limit: 10                # average LOG packets/second
+log_rate_burst: 20               # LOG burst before rate limiting kicks in
+
+# IPv6 support. Set to true on dual-stack hosts so TsunamiWall also manages an
+# ip6tables chain. Honeypots will listen on both IPv4 and IPv6.
+enable_ipv6: false
+
+# Firewall backend. "auto" selects iptables on Linux and pfctl on macOS.
+# Other values: "iptables", "pfctl", "noop" (no firewall rules; useful for
+# testing or unsupported platforms). Default is "auto".
+firewall_backend: "auto"
+
+# Base pfctl anchor name when using the pfctl backend on macOS. TsunamiWall
+# loads rules into sub-anchors <pfctl_anchor>/ipv4 and <pfctl_anchor>/ipv6.
+# You must reference the base anchor in /etc/pf.conf once:
+#   anchor "tsunamiwall/*"
+# and then run `sudo pfctl -f /etc/pf.conf` to activate it.
+pfctl_anchor: "tsunamiwall"

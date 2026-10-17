@@ -25,7 +25,7 @@ def test_auto_block_true_keeps_listeners_blocked():
 def test_build_rules_includes_blocked_ports(monkeypatch):
     commands = []
 
-    def fake_run(*args):
+    def fake_run(*args, **kwargs):
         commands.append(args)
 
     monkeypatch.setattr("tsunamiwall.iptables.run_iptables", fake_run)
