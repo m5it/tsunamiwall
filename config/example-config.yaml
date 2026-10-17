@@ -3,6 +3,12 @@
 # and edit as needed. All keys are optional; missing values use built-in defaults.
 
 # Port range used for honeypot listeners.
+# The default starts at 10000 to avoid common system services. Lower values are
+# allowed because the daemon runs as root and can bind privileged ports, but
+# you should first confirm those ports are not used by real services.
+# Example for observing SSH scanners (port 2222) and other low ports:
+#   honeypot_start: 1
+#   honeypot_end: 65535
 honeypot_start: 10000
 honeypot_end: 65535
 

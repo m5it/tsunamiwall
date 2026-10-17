@@ -1,4 +1,4 @@
-"""Asyncio honeypot listener for unused high ports."""
+"""Asyncio honeypot listener for unused TCP ports."""
 
 from __future__ import annotations
 

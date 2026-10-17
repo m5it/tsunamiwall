@@ -295,6 +295,11 @@ class Daemon:
             except OSError as exc:
                 logger.warning("Could not bind honeypot on TCP/%d: %s", port, exc)
                 continue
+            if port < 1024:
+                logger.warning(
+                    "Honeypot bound to privileged port TCP/%d; ensure no real service uses this port",
+                    port,
+                )
             self.honeypots[port] = hp
 
         # Stop honeypots that are now real services or outside allowed range.
@@ -389,6 +394,28 @@ class Daemon:
         if action == "status":
             return {
                 "ok": True,
+                "config": {
+                    "honeypot_start": self.cfg.honeypot_start,
+                    "honeypot_end": self.cfg.honeypot_end,
+                    "max_honeypots": self.cfg.max_honeypots,
+                    "discovery_interval": self.cfg.discovery_interval,
+                    "iptables_chain": self.cfg.iptables_chain,
+                    "log_dir": self.cfg.log_dir,
+                    "run_dir": self.cfg.run_dir,
+                    "payload_max_bytes": self.cfg.payload_max_bytes,
+                    "payload_read_timeout": self.cfg.payload_read_timeout,
+                    "payload_log_dir": self.cfg.payload_log_dir,
+                    "hit_log_max_bytes": self.cfg.hit_log_max_bytes,
+                    "hit_log_max_backups": self.cfg.hit_log_max_backups,
+                    "payload_log_max_bytes": self.cfg.payload_log_max_bytes,
+                    "log_rate_limit": self.cfg.log_rate_limit,
+                    "log_rate_burst": self.cfg.log_rate_burst,
+                    "enable_ipv6": self.cfg.enable_ipv6,
+                    "firewall_backend": self.cfg.firewall_backend,
+                    "pfctl_anchor": self.cfg.pfctl_anchor,
+                    "auto_block_listeners": self.cfg.auto_block_listeners,
+                    "trusted_ips": sorted(self.cfg.trusted_ips),
+                },
                 "allowed_ports": sorted(self.allowed_ports),
                 "allowed_per_ip": {
                     ip: sorted(ports) for ip, ports in sorted(self.allowed_per_ip.items())

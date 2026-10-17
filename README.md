@@ -6,7 +6,7 @@ Server firewall with built-in per-port honeypot listeners. Runs on Linux (`iptab
 - **Blocks** all unsolicited inbound traffic by default.
 - **Allows** traffic only to real listening services and explicitly allowed ports.
 - **Drops + logs** every unwanted probe.
-- **Opens stealth honeypot listeners** on unused high ports (`10000-65535`) to catch and record attacker behavior.
+- **Opens stealth honeypot listeners** on unused TCP ports (default `10000-65535`, configurable down to port 1) to catch and record attacker behavior.
 - **Captures attacker payloads** and stores them per country / per IP.
 - Provides a simple CLI, a live TUI, config-file support, and an emergency reset for safety.
 
@@ -122,6 +122,8 @@ scripts/tsunamiwall-logs dropped              # top dropped destination ports
 scripts/tsunamiwall-logs recent-payloads      # recent hits with payload previews
 scripts/tsunamiwall-logs recent-payloads 10 --bytes 200
 ```
+
+> The daemon writes logs under `/var/log/tsunamiwall` as root. The `scripts/tsunamiwall-logs` wrapper automatically re-executes with `sudo` when the log directory is not readable by your user, so you can usually run it without prefixing `sudo` yourself. If you prefer not to elevate, set a user-owned `log_dir` in your config.
 
 ## Documentation
 - `docs/usage.md` — installation, commands, and tuning.

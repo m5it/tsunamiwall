@@ -15,6 +15,10 @@ import yaml
 class Config:
     """Immutable runtime configuration."""
 
+    # Port range used for honeypot listeners. The default starts at 10000 to
+    # avoid colliding with common system services. Lower values are allowed:
+    # the daemon runs as root and can bind privileged ports, but you should
+    # verify that no real service is listening on those ports first.
     honeypot_start: int = 10_000
     honeypot_end: int = 65_535
     discovery_interval: float = 30.0
@@ -184,7 +188,10 @@ def load_config(path: str | os.PathLike | None = None) -> Config:
     if config_path is None:
         return defaults
 
-    raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    try:
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Config file {config_path} is not valid YAML: {exc}") from exc
     if not isinstance(raw, dict):
         raise ValueError(f"Config file {config_path} must contain a YAML mapping")
 

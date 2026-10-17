@@ -217,15 +217,15 @@ sudo ip6tables -L TSUNAMIWALL6 -n
 
 To see which destination ports are being actively dropped/probed recently:
 ```bash
-sudo scripts/tsunamiwall-logs dropped
-sudo scripts/tsunamiwall-logs dropped 30   # top 30
+scripts/tsunamiwall-logs dropped
+scripts/tsunamiwall-logs dropped 30   # top 30
 sudo dmesg | scripts/extract-attack-ports.sh --dst-port
 ```
 Note: `dmesg`/`journald` will only contain rate-limited LOG entries from iptables. Use `scripts/tsunamiwall-logs` for the full hit log.
 
 ### Inspecting logs with `scripts/tsunamiwall-logs`
 
-The `scripts/tsunamiwall-logs` helper reads the JSONL hit log and the per-country payload tree without needing the daemon socket:
+The `scripts/tsunamiwall-logs` helper reads the JSONL hit log and the per-country payload tree without needing the daemon socket. It automatically re-executes with `sudo` when the configured `log_dir` is not readable by the current user, so in most cases you can run it without prefixing `sudo`:
 
 ```bash
 scripts/tsunamiwall-logs recent             # last 50 hits
@@ -241,6 +241,8 @@ scripts/tsunamiwall-logs recent-payloads     # recent hits with payload previews
 scripts/tsunamiwall-logs recent-payloads 10 --bytes 200
 ```
 
+If you prefer not to elevate, set a user-owned `log_dir` in your config.
+
 ### Emergency reset
 If anything goes wrong, this stops the daemon and flushes every TsunamiWall rule:
 ```bash
@@ -253,7 +255,7 @@ sudo .venv/bin/python tsunamiwall/emergency.py
 1. The daemon scans listening sockets every 30 seconds. On Linux it reads `/proc/net/tcp` and `/proc/net/udp`; on macOS (or when `/proc/net` is unavailable) it falls back to `psutil`.
 2. By default, any port with a listening socket is allowed through the firewall.
 3. With `auto_block_listeners: true`, listening sockets are **not** auto-allowed; only explicitly `allow`ed ports are opened.
-4. Ports `10000-65535` that are not listening (or not in use in strict mode) are bound by silent asyncio honeypot servers.
+4. Ports in the configured `honeypot_start`/`honeypot_end` range that are not listening (or not in use in strict mode) are bound by silent asyncio honeypot servers. The default range is `10000-65535`; lower ports are allowed because the daemon runs as root, but verify no real service uses them.
 5. Ports added via `block` are dropped and logged even if a service listens on them.
 6. Each probe to a honeypot port is logged as JSON to `/var/log/tsunamiwall/hits.logl`.
 7. Everything else is dropped and logged by the configured firewall backend (`iptables` on Linux, `pfctl` on macOS).
@@ -279,7 +281,7 @@ sudo .venv/bin/python main.py -c /etc/tsunamiwall/config.yaml start
 ```
 
 Key tunables:
-- `honeypot_start` / `honeypot_end` — honeypot port range.
+- `honeypot_start` / `honeypot_end` — honeypot port range (default `10000-65535`; set as low as `1` if you want to observe privileged ports).
 - `max_honeypots` — hard cap on listeners (default 900, safe for default Linux fd limits).
 - `discovery_interval` — how often to re-scan sockets.
 - `trusted_ips` — IPs/CIDRs that bypass all filtering. Put your management IP here.

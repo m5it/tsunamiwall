@@ -67,7 +67,7 @@ Active development. Core daemon runs on real servers, manages iptables, opens ho
 - `reset` first tries to talk to the daemon; if the socket is dead it falls back to the configured firewall backend.
 - `daemon.sock` and `daemon.pid` are derived from `run_dir`; do not set `socket_path` or `pid_path` independently.
 - All TsunamiWall rules live in a dedicated `TSUNAMIWALL` chain jumped from `INPUT` (Linux) or in the configured `pfctl` anchor (macOS). Do not modify pre-existing rules.
-- Do not bind honeypots to ports below 10000 to avoid stealing system services.
+- The default honeypot range starts at 10000 to avoid common system services. Lower ports are allowed when explicitly configured; the daemon runs as root and can bind privileged ports, but you must verify that no real service is listening on those ports.
 - The daemon must detect new real services and immediately release conflicting honeypots.
 - Runtime allow/block/deny state is persisted to `<run_dir>/daemon-state.json` and restored on startup.
 - `auto_block_listeners: true` switches the daemon to strict default-deny: discovered listening sockets are not automatically allowed. The default is `false`, meaning every discovered listener is automatically allowed; this is convenient but not a strict default-deny policy.

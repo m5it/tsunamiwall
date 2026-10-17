@@ -82,3 +82,19 @@ async def test_handle_client_invalid_json_writes_dict(monkeypatch, minimal_daemo
     parsed = json.loads(writes[0].decode("utf-8"))
     assert isinstance(parsed, dict)
     assert parsed.get("ok") is False
+
+
+@pytest.mark.asyncio
+async def test_status_response_includes_config(minimal_daemon):
+    """Status should expose the active configuration so users can audit it."""
+    resp = await minimal_daemon._process_command({"action": "status"})
+    assert isinstance(resp, dict)
+    assert resp.get("ok") is True
+    assert "config" in resp
+    cfg = resp["config"]
+    assert cfg["honeypot_start"] == 10000
+    assert cfg["honeypot_end"] == 65535
+    assert cfg["max_honeypots"] == 0
+    assert cfg["firewall_backend"] == "auto"
+    assert "iptables_chain" in cfg
+    assert "log_dir" in cfg
