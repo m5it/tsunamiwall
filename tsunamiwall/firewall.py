@@ -7,6 +7,7 @@ backend for testing or unsupported platforms.
 from __future__ import annotations
 
 import abc
+import ipaddress
 import logging
 import os
 import shlex
@@ -22,6 +23,33 @@ from .ip6tables import build_rules as _build_rules_ipv6, reset as _reset_ipv6
 from .iptables import IptablesError, build_rules as _build_rules, reset as _reset
 
 logger = logging.getLogger("tsunamiwall.firewall")
+
+
+def _ip_family(ip: str) -> int | None:
+    """Return 4 for IPv4, 6 for IPv6, or None if *ip* is not a valid network."""
+    try:
+        return ipaddress.ip_network(ip, strict=False).version
+    except ValueError:
+        logger.warning("Ignoring invalid IP/CIDR in firewall rules: %s", ip)
+        return None
+
+
+def _filter_ips(ips: Iterable[str] | None, family: str) -> list[str]:
+    """Return only IPs/CIDRs belonging to the requested address family."""
+    target = 4 if family == "ipv4" else 6
+    return [ip for ip in (ips or ()) if _ip_family(ip) == target]
+
+
+def _filter_per_ip(
+    per_ip: dict[str, Iterable[int]] | None, family: str
+) -> dict[str, set[int]]:
+    """Return only per-IP allow entries belonging to the requested address family."""
+    target = 4 if family == "ipv4" else 6
+    result: dict[str, set[int]] = {}
+    for ip, ports in (per_ip or {}).items():
+        if _ip_family(ip) == target:
+            result[ip] = set(ports)
+    return result
 
 
 class FirewallBackend(abc.ABC):
@@ -103,13 +131,15 @@ class IptablesBackend(FirewallBackend):
         log_rate_burst: int = 20,
         family: str = "ipv4",
     ) -> None:
+        trusted = _filter_ips(trusted_ips, family)
+        per_ip = _filter_per_ip(allowed_per_ip, family)
         if self.command == "ip6tables":
             _build_rules_ipv6(
                 chain,
                 allowed_ports,
                 honeypot_ports,
-                trusted_ips=trusted_ips,
-                allowed_per_ip=allowed_per_ip,
+                trusted_ips=trusted,
+                allowed_per_ip=per_ip,
                 blocked_ports=blocked_ports,
                 log_rate_limit=log_rate_limit,
                 log_rate_burst=log_rate_burst,
@@ -120,8 +150,8 @@ class IptablesBackend(FirewallBackend):
             chain,
             allowed_ports,
             honeypot_ports,
-            trusted_ips=trusted_ips,
-            allowed_per_ip=allowed_per_ip,
+            trusted_ips=trusted,
+            allowed_per_ip=per_ip,
             blocked_ports=blocked_ports,
             log_rate_limit=log_rate_limit,
             log_rate_burst=log_rate_burst,
@@ -178,10 +208,10 @@ class PfctlBackend(FirewallBackend):
         allowed = sorted(set(allowed_ports) - blocked)
         honeypots = sorted(set(honeypot_ports) - blocked)
         blocked_sorted = sorted(blocked)
-        trusted = sorted(set(trusted_ips or ()))
+        trusted = sorted(set(_filter_ips(trusted_ips, family)))
         per_ip: dict[str, set[int]] = {
             ip: set(ports) - blocked
-            for ip, ports in (allowed_per_ip or {}).items()
+            for ip, ports in _filter_per_ip(allowed_per_ip, family).items()
             if ports
         }
 
