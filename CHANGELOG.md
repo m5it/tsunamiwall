@@ -12,6 +12,7 @@ All notable changes to TsunamiWall are documented in this file.
 - **`tail` follows log rotation** — `scripts/tsunamiwall-logs tail` now detects when `hits.logl` is rotated and reopens the current file, so it no longer gets stuck on an old inode and misses new honeypot hits.
 - **Consistent log viewer time display** — hit times are now converted from UTC to local time before printing, so `tail`/`recent` timestamps match the payload mtime display and `date`.
 - **Hit-log backup cap enforced** — `rotate_hit_log` now deletes backup files beyond `hit_log_max_backups`, so repeated rotations can no longer fill the disk.
+- **IP family filtering** — `trusted_ips` and per-IP allow rules are now filtered by address family before being passed to each firewall backend, so IPv4 rules never reach `ip6tables` and IPv6 rules never reach `iptables`.
 
 ## [1.2.0] - 2026-10-17
 
