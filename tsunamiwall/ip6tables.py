@@ -50,19 +50,50 @@ def flush_chain(chain: str) -> None:
     run_ip6tables("-F", chain)
 
 
-def _remove_jump(chain: str) -> None:
+def delete_chain(chain: str) -> None:
+    """Remove all jumps from INPUT to *chain* and delete the chain."""
+    _remove_jumps(chain)
     try:
-        run_ip6tables("-D", "INPUT", "-j", chain, quiet=True)
+        flush_chain(chain)
+    except Ip6tablesError:
+        pass
+    try:
+        run_ip6tables("-X", chain)
     except Ip6tablesError:
         pass
 
 
+def _jump_exists(chain: str) -> bool:
+    """Return True if INPUT already has a jump to *chain*.
+
+    Uses `ip6tables -C INPUT -j CHAIN` to avoid parsing `-L` output.
+    """
+    try:
+        run_ip6tables("-C", "INPUT", "-j", chain, quiet=True)
+        return True
+    except Ip6tablesError:
+        return False
+
+
+def _remove_jumps(chain: str) -> None:
+    """Remove every jump to *chain* from INPUT, ignoring absence."""
+    while True:
+        try:
+            run_ip6tables("-D", "INPUT", "-j", chain, quiet=True)
+        except Ip6tablesError:
+            break
+
+
 def _install_jump_if_missing(chain: str) -> None:
-    cmd = ["ip6tables", "-w", "10", "-n", "-L", "INPUT"]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode == 0 and f"-j {chain}" in result.stdout:
+    """Add the TsunamiWall chain jump to INPUT at the top if not already present."""
+    if _jump_exists(chain):
         return
     run_ip6tables("-I", "INPUT", "1", "-j", chain)
+
+
+def _remove_jump(chain: str) -> None:
+    """Remove jumps to *chain* from INPUT without failing if absent."""
+    _remove_jumps(chain)
 
 
 def _rename_chain(old: str, new: str) -> None:
@@ -224,16 +255,14 @@ def build_rules(
 
 
 def reset(chain: str) -> None:
-    """Remove all TsunamiWall IPv6 rules and leave the chain empty/deleted."""
-    try:
+    """Remove all TsunamiWall IPv6 rules and leave the chain empty/deleted.
+
+    Also removes any leftover shadow (_NEW) and rollback (_OLD) chains and
+    their INPUT jumps.
+    """
+    for suffix in ("", "_NEW", "_OLD"):
+        target = f"{chain}{suffix}"
         try:
-            run_ip6tables("-D", "INPUT", "-j", chain)
-        except Ip6tablesError:
-            pass
-        flush_chain(chain)
-        try:
-            run_ip6tables("-X", chain)
-        except Ip6tablesError:
-            pass
-    except Ip6tablesError as exc:
-        logger.warning("IPv6 reset encountered error but continuing: %s", exc)
+            delete_chain(target)
+        except Ip6tablesError as exc:
+            logger.warning("IPv6 reset encountered error for %s but continuing: %s", target, exc)

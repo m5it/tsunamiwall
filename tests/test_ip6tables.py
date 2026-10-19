@@ -3,6 +3,12 @@ import pytest
 from tsunamiwall.ip6tables import Ip6tablesError, build_rules, run_ip6tables
 
 
+def _mock_jump_detection(monkeypatch):
+    """Mock _jump_exists and _chain_exists so tests do not call real ip6tables."""
+    monkeypatch.setattr("tsunamiwall.ip6tables._jump_exists", lambda chain: False)
+    monkeypatch.setattr("tsunamiwall.ip6tables._chain_exists", lambda chain: False)
+
+
 def test_run_ip6tables_uses_correct_binary(monkeypatch):
     commands = []
 
@@ -20,6 +26,7 @@ def test_run_ip6tables_uses_correct_binary(monkeypatch):
 
 
 def test_build_rules_creates_ipv6_chain(monkeypatch):
+    _mock_jump_detection(monkeypatch)
     commands = []
 
     def fake_run(*args, **kwargs):
@@ -51,6 +58,7 @@ def test_build_rules_creates_ipv6_chain(monkeypatch):
 
 
 def test_build_rules_shadow_swap_atomic(monkeypatch):
+    _mock_jump_detection(monkeypatch)
     commands = []
 
     def fake_run(*args, **kwargs):
@@ -71,6 +79,7 @@ def test_build_rules_shadow_swap_atomic(monkeypatch):
 
 
 def test_build_rules_rollback_on_failure(monkeypatch):
+    _mock_jump_detection(monkeypatch)
     commands = []
     fail_after = 5
 

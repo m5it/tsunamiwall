@@ -54,29 +54,53 @@ def flush_chain(chain: str) -> None:
 
 
 def delete_chain(chain: str) -> None:
-    """Remove the jump from INPUT and delete the chain."""
+    """Remove all jumps from INPUT to *chain* and delete the chain."""
+    _remove_jumps(chain)
     try:
-        run_iptables("-D", "INPUT", "-j", chain)
+        flush_chain(chain)
     except IptablesError:
         pass
-    flush_chain(chain)
     try:
         run_iptables("-X", chain)
     except IptablesError:
         pass
 
 
+
+
+
+def _jump_exists(chain: str) -> bool:
+    """Return True if INPUT already has a jump to *chain*.
+
+    Uses `iptables -C INPUT -j CHAIN`. This avoids parsing `iptables -L`
+    output, which shows the target as a column rather than the literal
+    `-j CHAIN` specification and can miss existing jumps.
+    """
+    try:
+        run_iptables("-C", "INPUT", "-j", chain, quiet=True)
+        return True
+    except IptablesError:
+        return False
+
+
+def _remove_jumps(chain: str) -> None:
+    """Remove every jump to *chain* from INPUT, ignoring absence."""
+    while _jump_exists(chain):
+        try:
+            run_iptables("-D", "INPUT", "-j", chain, quiet=True)
+        except IptablesError:
+            break
+
+
 def _install_jump_if_missing(chain: str) -> None:
     """Add the TsunamiWall chain jump to INPUT at the top if not already present."""
-    cmd = ["iptables", "-w", "10", "-n", "-L", "INPUT"]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode == 0 and f"-j {chain}" in result.stdout:
+    if _jump_exists(chain):
         return
     run_iptables("-I", "INPUT", "1", "-j", chain)
 
 
 def _remove_jump(chain: str) -> None:
-    """Remove any jump to *chain* from INPUT without failing if absent."""
+    """Remove one jump to *chain* from INPUT without failing if absent."""
     try:
         run_iptables("-D", "INPUT", "-j", chain, quiet=True)
     except IptablesError:
@@ -279,8 +303,14 @@ def build_rules(
 
 
 def reset(chain: str) -> None:
-    """Remove all TsunamiWall rules and leave the chain empty/deleted."""
-    try:
-        delete_chain(chain)
-    except IptablesError as exc:
-        logger.warning("Reset encountered error but continuing: %s", exc)
+    """Remove all TsunamiWall rules and leave the chain empty/deleted.
+
+    Also removes any leftover shadow (_NEW) and rollback (_OLD) chains and
+    their INPUT jumps, so a failed atomic swap cannot leave stale references.
+    """
+    for suffix in ("", "_NEW", "_OLD"):
+        target = f"{chain}{suffix}"
+        try:
+            delete_chain(target)
+        except IptablesError as exc:
+            logger.warning("Reset encountered error for %s but continuing: %s", target, exc)
