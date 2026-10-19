@@ -9,6 +9,8 @@ import time
 from dataclasses import dataclass
 from typing import Callable
 
+from .util import _format_hit_time
+
 
 @dataclass(frozen=True)
 class DisplayHit:
@@ -31,14 +33,12 @@ def parse_hit_line(line: str) -> DisplayHit | None:
     if obj.get("action") != "honeypot_hit":
         return None
     return DisplayHit(
-        time=obj.get("time", "?"),
+        time=_format_hit_time(obj.get("time", "?")),
         src_ip=obj.get("src_ip", "?"),
         src_port=obj.get("src_port", 0),
         dst_port=obj.get("dst_port", 0),
         family=obj.get("family", "ipv4"),
     )
-
-
 def _tail_file(path: str, callback: Callable[[str], None]) -> None:
     """Tail a text file, calling callback for each new line."""
     with open(path, "r", encoding="utf-8") as fh:

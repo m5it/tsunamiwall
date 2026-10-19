@@ -9,6 +9,7 @@ import os
 import sys
 
 from .config import Config, load_config
+from .util import _format_hit_time
 
 
 def _config(args: argparse.Namespace) -> Config:
@@ -176,10 +177,32 @@ def cmd_logs(args: argparse.Namespace) -> int:
         print("No honeypot logs yet.")
         return 0
     with open(cfg.hit_log_path, "r", encoding="utf-8") as fh:
-        # Tail last 50 lines.
         lines = fh.readlines()
+    if not lines:
+        print("No honeypot logs yet.")
+        return 0
+
+    print(f"{'TIME':20} {'FAMILY':6} {'SRC IP':20} {'CC':4} {'SPORT':6} {'DPORT':6} {'SIZE':5}")
+    print("-" * 74)
     for line in lines[-50:]:
-        print(line, end="")
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if obj.get("action") != "honeypot_hit":
+            continue
+        print(
+            f"{_format_hit_time(obj.get('time', '')):20} "
+            f"{obj.get('family', 'ipv4'):6} "
+            f"{obj.get('src_ip', '?'):20} "
+            f"{obj.get('country_code', '?'):4} "
+            f"{obj.get('src_port', 0):6} "
+            f"{obj.get('dst_port', 0):6} "
+            f"{obj.get('payload_size', 0):5}"
+        )
     return 0
 
 
