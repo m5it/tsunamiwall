@@ -130,7 +130,7 @@ By default TsunamiWall only protects IPv4. On dual-stack hosts, add this to your
 ```yaml
 enable_ipv6: true
 ```
-Honeypots will then listen on both IPv4 and IPv6. Verify the IPv6 chain with:
+TsunamiWall will then also manage an `ip6tables` chain with the same default-deny policy for real services and per-IP rules. Honeypots currently bind IPv4 only (to avoid file-descriptor exhaustion), so honeypot ports are not opened on the IPv6 side; IPv6 probes to those ports are dropped and logged. Verify the IPv6 chain with:
 ```bash
 sudo ip6tables -L TSUNAMIWALL6 -n
 ```

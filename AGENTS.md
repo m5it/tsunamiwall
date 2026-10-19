@@ -72,7 +72,7 @@ Active development. Core daemon runs on real servers, manages iptables, opens ho
 - Runtime allow/block/deny state is persisted to `<run_dir>/daemon-state.json` and restored on startup.
 - `auto_block_listeners: true` switches the daemon to strict default-deny: discovered listening sockets are not automatically allowed. The default is `false`, meaning every discovered listener is automatically allowed; this is convenient but not a strict default-deny policy.
 - A globally `block`ed port overrides `allow`, per-source-IP `allow`, auto-discovered services, and honeypot selection. `trusted_ips` still bypass the block.
-- Set `enable_ipv6: true` in config to also manage an `ip6tables` chain. By default only IPv4 is protected; IPv6 traffic is left untouched. Honeypots bind to all addresses when IPv6 is enabled, otherwise only IPv4.
+- Set `enable_ipv6: true` in config to also manage an `ip6tables` chain with the same default-deny policy for real services and per-IP rules. By default only IPv4 is protected; IPv6 traffic is left untouched. Honeypots bind to `0.0.0.0` (IPv4 only) to avoid file-descriptor exhaustion, so honeypot ports are not opened in the IPv6 chain.
 - Set `firewall_backend: "pfctl"` on macOS to use `pfctl` anchors. The base anchor (default `tsunamiwall`) must be referenced in `/etc/pf.conf` by the user; TsunamiWall only manages the sub-anchor contents.
 - Service discovery falls back to `psutil` when `/proc/net/tcp` and `/proc/net/udp` are unavailable (e.g. macOS).
 
