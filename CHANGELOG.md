@@ -6,6 +6,7 @@ All notable changes to TsunamiWall are documented in this file.
 
 ### Added
 - **Log viewer payload filters** — `scripts/tsunamiwall-logs payloads` now accepts `by-ip <IP>`, `by-country <CC>` and `by-dst <PORT>` filter terms, plus a bare count for `--last`, so commands like `payloads 3 by-ip 1.2.3.4 by-dst 22` work intuitively.
+- **Log viewer sudo wrapper** — `scripts/tsunamiwall-logs` now re-executes itself with `sudo` when the configured `log_dir` is not readable by the current user, so you do not need to prefix `sudo` manually. If `sudo` is unavailable, it falls back to running normally and reports the permission error.
 
 ### Fixed
 - **Log viewer ordering** — `recent`, `by-ip`, `by-country`, `by-dst` and `recent-payloads` now display hits newest-first (descending) instead of file-order.
@@ -17,13 +18,9 @@ All notable changes to TsunamiWall are documented in this file.
 - **Per-hit IP family + payload size** — honeypot hit logs now include `family` (`ipv4` or `ipv6`) and `payload_size` fields so logs, the live TUI, and `tsunamiwall-logs` can distinguish IPv4/IPv6 probes and show whether a payload was captured without needing to read disk.
 - **Configurable low-port honeypots** — the honeypot port range (`honeypot_start`/`honeypot_end`) can now be set as low as port 1. The daemon runs as root and can bind privileged ports; a warning is logged when a honeypot binds to a port below 1024.
 - **Status shows active config + config path** — `./run.sh status` now reports the full configuration the daemon is running with and the path of the config file it loaded, so it is easy to verify which file is in use.
-- **Log viewer sudo wrapper** — `scripts/tsunamiwall-logs` now re-executes itself with `sudo` when the configured `log_dir` is not readable by the current user, so you do not need to prefix `sudo` manually. If `sudo` is unavailable, it falls back to running normally and reports the permission error.
-
-### Fixed
 - **Firewall jump detection and reset hardening** — `_install_jump_if_missing()` now uses `iptables -C` / `ip6tables -C` instead of parsing `iptables -L` output for `-j CHAIN`, which could miss existing jumps and insert duplicates during rollback. `reset()` now removes all jumps to the configured chain and deletes leftover `_NEW` and `_OLD` shadow/rollback chains, so a failed atomic swap cannot leave stale rules or references behind.
+- **Explicit IPv6-only backend routing** — `firewall_backend: "ip6tables"` now runs a true IPv6-only deployment: the daemon builds a single IPv6 ruleset, IPv4 is not managed, and shutdown/emergency reset target the IPv6 chain directly. `firewall_backend: "iptables"` continues to manage IPv4 and, when `enable_ipv6: true`, a separate IPv6 chain.
 - **Consistent UDP service discovery** — `/proc/net/udp` parsing now only reports bound/listening UDP sockets (those with a zeroed remote address `00000000:0000`). Connected UDP sockets are no longer misreported as listeners. The psutil fallback now accepts UDP sockets in `CONN_NONE` state in addition to `CONN_LISTEN`, matching how psutil reports connectionless UDP sockets on macOS and Linux.
-- **Linux startup file-descriptor exhaustion** — honeypot listeners now bind to `0.0.0.0` (IPv4 only) instead of dual-stack. This halves socket usage and prevents `OSError: Too many open files` during firewall rule generation when `max_honeypots` is near the default file-descriptor limit.
-- **Unique payload filenames** — payload files are now named with a nanosecond-resolution timestamp + destination port + source port so multiple probes from the same IP in the same second never overwrite each other.
 - **Accurate payload matching in log viewer** — `tsunamiwall-logs recent-payloads` now matches files by `dst_port` + `src_port` and picks the file whose mtime is closest to the hit time, instead of guessing by date prefix.
 - **Payload write error handling** — the daemon now logs `PermissionError` and other payload-write exceptions instead of silently dropping captured bytes.
 - **Truly atomic iptables cutover** — the shadow chain jump is now inserted into `INPUT` *before* the old chain jump is removed, so there is never a gap where packets bypass TsunamiWall. Chain renames then give the active ruleset the configured name. If a rename fails, the previous ruleset is restored under the configured chain name.

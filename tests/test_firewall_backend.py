@@ -49,11 +49,33 @@ def test_get_backend_noop():
     assert isinstance(backend, NoopBackend)
 
 
-def test_get_backend_explicit_ip6tables():
+def test_get_backend_explicit_ip6tables_ipv6_family():
+    cfg = Config(firewall_backend="ip6tables")
+    backend = get_backend(cfg, family="ipv6")
+    assert isinstance(backend, IptablesBackend)
+    assert backend.command == "ip6tables"
+
+
+def test_get_backend_explicit_ip6tables_ipv4_family():
+    """ip6tables backend is honoured even if the caller asks for ipv4."""
     cfg = Config(firewall_backend="ip6tables")
     backend = get_backend(cfg, family="ipv4")
     assert isinstance(backend, IptablesBackend)
     assert backend.command == "ip6tables"
+
+
+def test_get_backend_iptables_uses_ip6tables_for_ipv6_family():
+    cfg = Config(firewall_backend="iptables")
+    backend = get_backend(cfg, family="ipv6")
+    assert isinstance(backend, IptablesBackend)
+    assert backend.command == "ip6tables"
+
+
+def test_get_backend_iptables_uses_iptables_for_ipv4_family():
+    cfg = Config(firewall_backend="iptables")
+    backend = get_backend(cfg, family="ipv4")
+    assert isinstance(backend, IptablesBackend)
+    assert backend.command == "iptables"
 
 
 def test_config_accepts_ip6tables_backend():

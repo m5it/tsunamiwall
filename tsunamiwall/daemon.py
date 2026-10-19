@@ -42,8 +42,16 @@ class Daemon:
         self._server: asyncio.Server | None = None
         self._hit_log_fh = self._open_hit_log()
         self._payload_writer = default_payload_writer(self.cfg)
-        self._firewall = get_backend(self.cfg, family="ipv4")
-        self._firewall_ipv6 = get_backend(self.cfg, family="ipv6") if self.cfg.enable_ipv6 else None
+        # Firewall backends. The primary backend is always created. The IPv6
+        # backend is only created when enable_ipv6 is true, except when the
+        # user explicitly selects the ip6tables-only backend, in which case
+        # the primary backend is ip6tables and no separate IPv4 backend is run.
+        if self.cfg.firewall_backend == "ip6tables":
+            self._firewall = get_backend(self.cfg, family="ipv6")
+            self._firewall_ipv6 = None
+        else:
+            self._firewall = get_backend(self.cfg, family="ipv4")
+            self._firewall_ipv6 = get_backend(self.cfg, family="ipv6") if self.cfg.enable_ipv6 else None
         self._load_state()
 
     def _open_hit_log(self):
@@ -221,14 +229,19 @@ class Daemon:
                 pass
             self._save_state()
             self._remove_pid()
-            self._firewall.reset(self.cfg.iptables_chain, family="ipv4")
+            # Reset the primary chain. In ip6tables-only mode this is the IPv6
+            # chain and the iptables_chain name is still used for the target.
+            primary_family = "ipv6" if self.cfg.firewall_backend == "ip6tables" else "ipv4"
+            self._firewall.reset(self.cfg.iptables_chain, family=primary_family)
             # Always reset the IPv6 chain too, even if enable_ipv6 is currently
             # false, so stale rules from a previous IPv6-enabled run do not
             # remain. Use the dedicated IPv6 backend if we have one, otherwise
-            # create it just for cleanup.
+            # create it just for cleanup. In ip6tables-only mode the primary
+            # backend already owns the IPv6 chain, so skip the duplicate reset.
             try:
-                backend_ipv6 = self._firewall_ipv6 or get_backend(self.cfg, family="ipv6")
-                backend_ipv6.reset(self.cfg.ipv6_chain, family="ipv6")
+                if self.cfg.firewall_backend != "ip6tables":
+                    backend_ipv6 = self._firewall_ipv6 or get_backend(self.cfg, family="ipv6")
+                    backend_ipv6.reset(self.cfg.ipv6_chain, family="ipv6")
             except Exception:
                 logger.exception("IPv6 reset during stop failed")
             logger.info("TsunamiWall daemon stopped")
@@ -325,6 +338,10 @@ class Daemon:
             for ip, ports in self.allowed_per_ip.items()
             if ports - blocked
         }
+
+        # Primary ruleset. In normal mode this is IPv4; in ip6tables-only mode it
+        # is IPv6 and IPv4 is not managed at all.
+        primary_family = "ipv6" if self.cfg.firewall_backend == "ip6tables" else "ipv4"
         self._firewall.build_rules(
             self.cfg.iptables_chain,
             managed_allowed,
@@ -334,7 +351,7 @@ class Daemon:
             blocked_ports=self.blocked_ports,
             log_rate_limit=self.cfg.log_rate_limit,
             log_rate_burst=self.cfg.log_rate_burst,
-            family="ipv4",
+            family=primary_family,
         )
 
         # IPv6 chain mirrors IPv4 allow policy for real services and per-IP rules,
@@ -358,7 +375,8 @@ class Daemon:
             except Exception:
                 logger.exception("IPv6 rule build failed")
 
-        logger.info("Reconciled: allowed=%s honeypots=%d", sorted(managed_allowed), len(honeypot_ports))
+        family_note = "IPv4 only" if self.cfg.firewall_backend == "ip6tables" else "IPv4/IPv6"
+        logger.info("Reconciled: allowed=%s honeypots=%d family=%s", sorted(managed_allowed), len(honeypot_ports), family_note)
         self._save_state()
 
     async def _stop_all_honeypots(self) -> None:

@@ -291,7 +291,7 @@ Key tunables:
 - `discovery_interval` — how often to re-scan sockets.
 - `trusted_ips` — IPs/CIDRs that bypass all filtering. Put your management IP here.
 - `auto_block_listeners` — strict default-deny mode; listening sockets are not auto-allowed.
-- `firewall_backend` — `auto`, `iptables`, `pfctl`, or `noop`.
+- `firewall_backend` — `auto`, `iptables`, `ip6tables`, `pfctl`, or `noop`. `iptables` is the Linux IPv4 backend (and IPv6 when `enable_ipv6: true`); `ip6tables` is an IPv6-only deployment that does not manage IPv4.
 - `pfctl_anchor` — base anchor name for the macOS `pfctl` backend.
 - Runtime `allow`/`deny`/`block` state is persisted to `<run_dir>/daemon-state.json`.
 

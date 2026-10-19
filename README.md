@@ -1,6 +1,6 @@
 :tsunami: # TsunamiWall
 
-Server firewall with built-in per-port honeypot listeners. Runs on Linux (`iptables`/`ip6tables`) and experimentally on macOS (`pfctl`).
+Server firewall with built-in per-port honeypot listeners. Runs on Linux (`iptables`, with optional `ip6tables`) and experimentally on macOS (`pfctl`).
 
 ## What it does
 - **Blocks** all unsolicited inbound traffic by default.
@@ -77,7 +77,7 @@ TsunamiWall reads YAML configuration from (in order):
 3. `/etc/tsunamiwall/config.yaml`
 4. `~/.config/tsunamiwall/config.yaml`
 
-Key options include `trusted_ips`, `auto_block_listeners`, `honeypot_start`/`honeypot_end`, `max_honeypots`, payload capture settings, log rotation settings, `enable_ipv6` for dual-stack hosts, and `firewall_backend`/`pfctl_anchor` for cross-platform support.
+Key options include `trusted_ips`, `auto_block_listeners`, `honeypot_start`/`honeypot_end`, `max_honeypots`, payload capture settings, log rotation settings, `enable_ipv6` for dual-stack hosts, and `firewall_backend` (`iptables`, `ip6tables`, `pfctl`, or `noop`) for cross-platform support.
 
 > **Note on `auto_block_listeners`:** the default is `false`, which means TsunamiWall automatically allows every listening socket it discovers. This is convenient for setup but not a strict default-deny policy. Set it to `true` after adding your management IP to `trusted_ips` for a real default-deny posture.
 
@@ -99,7 +99,7 @@ Key options include `trusted_ips`, `auto_block_listeners`, `honeypot_start`/`hon
 ```
 
 - **Daemon**: `asyncio`-based, watches listening sockets, manages honeypot listeners.
-- **Firewall backend**: pluggable `iptables`/`ip6tables` on Linux or `pfctl` anchors on macOS, configured with `firewall_backend`. Default is `auto`.
+- **Firewall backend**: pluggable `iptables` (IPv4, with optional IPv6 via `enable_ipv6`), `ip6tables` (IPv6-only), or `pfctl` anchors on macOS, configured with `firewall_backend`. Default is `auto`.
 - **CLI/TUI**: Unix-socket client talking to the daemon.
 - **Payload logging**: captured data is written to `/var/log/tsunamiwall/bycountry/{CC}/{IP}/`.
 - **Log viewer script**: `scripts/tsunamiwall-logs` makes it easy to inspect hits and payloads.

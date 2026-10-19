@@ -61,9 +61,12 @@ class Config:
     # stack hosts. IPv6 honeypots listen on the same TCP ports as IPv4.
     enable_ipv6: bool = False
     # Firewall backend to use. "auto" selects iptables on Linux and pfctl on
-    # macOS. Other values: "iptables" (Linux IPv4/IPv6), "ip6tables" (Linux
-    # IPv6 only), "pfctl" (macOS), "noop" (no firewall rules; useful for
-    # testing or unsupported platforms).
+    # macOS. Other values:
+    #   - "iptables": Linux IPv4 backend. When enable_ipv6 is true a separate
+    #     IPv6 (ip6tables) backend is also used.
+    #   - "ip6tables": Linux IPv6-only backend. IPv4 is not managed.
+    #   - "pfctl": macOS anchor-based backend.
+    #   - "noop": no firewall rules; useful for testing or unsupported platforms.
     firewall_backend: str = "auto"
     # Base pfctl anchor name used when firewall_backend is "pfctl" or auto on
     # macOS. The daemon uses sub-anchors <pfctl_anchor>/ipv4 and <pfctl_anchor>/ipv6.

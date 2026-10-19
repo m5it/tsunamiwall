@@ -61,12 +61,16 @@ log_rate_limit: 10                # average LOG packets/second
 log_rate_burst: 20               # LOG burst before rate limiting kicks in
 
 # IPv6 support. Set to true on dual-stack hosts so TsunamiWall also manages an
-# ip6tables chain. Honeypots will listen on both IPv4 and IPv6.
+# ip6tables chain alongside the IPv4 iptables chain.
 enable_ipv6: false
 
 # Firewall backend. "auto" selects iptables on Linux and pfctl on macOS.
-# Other values: "iptables", "pfctl", "noop" (no firewall rules; useful for
-# testing or unsupported platforms). Default is "auto".
+# Other values:
+#   - "iptables": Linux IPv4 backend. When enable_ipv6 is true a separate
+#     IPv6 (ip6tables) backend is also used.
+#   - "ip6tables": Linux IPv6-only backend. IPv4 is not managed.
+#   - "pfctl": macOS anchor-based backend.
+#   - "noop": no firewall rules; useful for testing or unsupported platforms.
 firewall_backend: "auto"
 
 # Base pfctl anchor name when using the pfctl backend on macOS. TsunamiWall

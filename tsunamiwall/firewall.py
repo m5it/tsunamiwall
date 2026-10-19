@@ -286,12 +286,20 @@ def get_backend(cfg: Config, family: str = "ipv4") -> FirewallBackend:
     if backend_name == "pfctl":
         return PfctlBackend(cfg)
     if backend_name == "iptables":
-        return IptablesBackend(command="iptables" if family == "ipv4" else "ip6tables")
+        # "iptables" means the Linux IPv4 backend. Use "ip6tables" for IPv6.
+        if family == "ipv6":
+            return IptablesBackend(command="ip6tables")
+        return IptablesBackend(command="iptables")
     if backend_name == "ip6tables":
+        # "ip6tables" is an explicit IPv6-only backend. When the caller asks
+        # for IPv4 we still honour the configured command, because the user
+        # selected an ip6tables-only deployment.
         return IptablesBackend(command="ip6tables")
 
     # Fallback: try to detect at runtime.
     backend_name = detect_backend_name()
     if backend_name == "pfctl":
         return PfctlBackend(cfg)
-    return IptablesBackend(command="iptables" if family == "ipv4" else "ip6tables")
+    if family == "ipv6":
+        return IptablesBackend(command="ip6tables")
+    return IptablesBackend(command="iptables")

@@ -101,3 +101,44 @@ async def test_stop_resets_ipv6_even_when_disabled(monkeypatch, tmp_path, fake_f
     assert ("reset", "ipv4", "TSUNAMIWALL") in resets
     assert ("reset", "ipv6", "TSUNAMIWALL6") in resets, "IPv6 reset should be attempted even when disabled"
 
+
+@pytest.mark.asyncio
+async def test_stop_ip6tables_only_resets_ipv6_primary_chain(monkeypatch, tmp_path, fake_firewall):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    payload_dir = tmp_path / "payloads"
+    payload_dir.mkdir()
+
+    cfg = Config(
+        run_dir=str(run_dir),
+        log_dir=str(log_dir),
+        payload_log_dir=str(payload_dir),
+        firewall_backend="ip6tables",
+        enable_ipv6=False,
+        max_honeypots=0,
+    )
+
+    monkeypatch.setattr("tsunamiwall.daemon.discover_ports", lambda **kwargs: set())
+
+    daemon = Daemon(cfg)
+
+    def fake_hard_exit():
+        pass
+
+    monkeypatch.setattr(daemon, "_hard_exit", fake_hard_exit)
+
+    start_task = asyncio.create_task(daemon.start())
+    await asyncio.sleep(0.1)
+    daemon._request_stop()
+
+    try:
+        await asyncio.wait_for(start_task, timeout=5.0)
+    except asyncio.TimeoutError:
+        pytest.fail("daemon.start() did not return after _request_stop")
+
+    resets = [c for c in fake_firewall if c[0] == "reset"]
+    assert ("reset", "ipv6", "TSUNAMIWALL") in resets, "IPv6 primary chain should be reset in ip6tables-only mode"
+    assert not any(c[1] == "ipv4" for c in resets), "IPv4 should not be reset in ip6tables-only mode"
+
