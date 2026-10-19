@@ -255,7 +255,7 @@ sudo .venv/bin/python tsunamiwall/emergency.py
 ```
 
 ## How it works
-1. The daemon scans listening sockets every 30 seconds. On Linux it reads `/proc/net/tcp` and `/proc/net/udp`; on macOS (or when `/proc/net` is unavailable) it falls back to `psutil`.
+1. The daemon scans listening sockets every 30 seconds. On Linux it reads `/proc/net/tcp` and `/proc/net/udp`; on macOS (or when `/proc/net` is unavailable) it falls back to `psutil`. UDP discovery reports only bound sockets (`/proc/net/udp` entries with a zero remote address, or psutil UDP sockets in `LISTEN`/`NONE` state), so connected UDP sockets are not mistaken for listeners.
 2. By default, any port with a listening socket is allowed through the firewall.
 3. With `auto_block_listeners: true`, listening sockets are **not** auto-allowed; only explicitly `allow`ed ports are opened.
 4. Ports in the configured `honeypot_start`/`honeypot_end` range that are not listening (or not in use in strict mode) are bound by silent asyncio honeypot servers. The default range is `10000-65535`; lower ports are allowed because the daemon runs as root, but verify no real service uses them.

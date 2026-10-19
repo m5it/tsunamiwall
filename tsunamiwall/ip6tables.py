@@ -77,7 +77,7 @@ def _jump_exists(chain: str) -> bool:
 
 def _remove_jumps(chain: str) -> None:
     """Remove every jump to *chain* from INPUT, ignoring absence."""
-    while True:
+    while _jump_exists(chain):
         try:
             run_ip6tables("-D", "INPUT", "-j", chain, quiet=True)
         except Ip6tablesError:
@@ -92,8 +92,11 @@ def _install_jump_if_missing(chain: str) -> None:
 
 
 def _remove_jump(chain: str) -> None:
-    """Remove jumps to *chain* from INPUT without failing if absent."""
-    _remove_jumps(chain)
+    """Remove one jump to *chain* from INPUT without failing if absent."""
+    try:
+        run_ip6tables("-D", "INPUT", "-j", chain, quiet=True)
+    except Ip6tablesError:
+        pass
 
 
 def _rename_chain(old: str, new: str) -> None:

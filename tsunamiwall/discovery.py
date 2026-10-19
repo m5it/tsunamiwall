@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -17,11 +16,16 @@ class Listener:
     local_ip: str
 
 
-def _parse_proc_net_line(line: str) -> tuple[str, int] | None:
+def _parse_proc_net_line(line: str) -> tuple[str, str, int] | None:
     """Parse one line from /proc/net/tcp or /proc/net/udp.
 
     Format (space separated, values 0-indexed):
       sl  local_address rem_address st tx_queue:rx_queue ...
+
+    Returns (local_address, remote_address, state).  For UDP we use a zeroed
+    remote address (00000000:0000) to identify a bound/listening socket; UDP
+    entries with a non-zero remote address are connected UDP sockets and
+    should not be treated as listeners.
     """
     parts = line.split()
     if len(parts) < 4:
@@ -31,9 +35,7 @@ def _parse_proc_net_line(line: str) -> tuple[str, int] | None:
         state = int(parts[3], 16)
     except ValueError:
         return None
-    # /proc/net/udp does not have a LISTEN state, so accept all UDP entries
-    # and let the caller decide. For TCP we only want LISTEN (0x0A).
-    return parts[1], state
+    return parts[1], parts[2], state
 
 
 def _hex_ip_port(addr_field: str) -> tuple[str, int] | None:
@@ -70,15 +72,21 @@ def _read_proc_net(path: str, proto: str) -> Iterable[Listener]:
             parsed = _parse_proc_net_line(line)
             if parsed is None:
                 continue
-            addr_field, state = parsed
-            addr = _hex_ip_port(addr_field)
-            if addr is None:
+            local_field, remote_field, state = parsed
+            local_addr = _hex_ip_port(local_field)
+            if local_addr is None:
                 continue
-            ip, port = addr
-            # Skip UDP non-listeners? /proc/net/udp lists all sockets.
-            # We treat every UDP entry with a local port as a listener.
-            if proto == "tcp" and state != 0x0A:
-                continue
+            ip, port = local_addr
+            if proto == "tcp":
+                if state != 0x0A:
+                    continue
+            else:
+                # /proc/net/udp lists every UDP socket. A bound/listening UDP
+                # socket has no peer, so its remote address is 0.0.0.0:0.
+                # Connected UDP sockets have a non-zero remote address and must
+                # not be treated as listeners.
+                if remote_field != "00000000:0000":
+                    continue
             yield Listener(proto=proto, port=port, local_ip=ip)
 
 
@@ -134,6 +142,22 @@ def has_ipv6_listener(port: int) -> bool:
 
 # Optional psutil-based discovery for environments where /proc/net parsing is
 # insufficient or unavailable.
+def _is_psutil_listener(conn) -> bool:
+    """Return True if a psutil connection represents a listening socket.
+
+    TCP sockets must be in the LISTEN state. UDP sockets are connectionless,
+    so psutil usually reports them as CONN_NONE; we treat any UDP socket with a
+    local address as a bound/listening socket.
+    """
+    import psutil
+
+    if not conn.laddr:
+        return False
+    if conn.type.name == "SOCK_STREAM":
+        return conn.status == psutil.CONN_LISTEN
+    return conn.status in (psutil.CONN_LISTEN, psutil.CONN_NONE)
+
+
 def discover_with_psutil() -> set[Listener]:
     """Return listening IPv4 sockets using psutil, if installed."""
     try:
@@ -142,16 +166,15 @@ def discover_with_psutil() -> set[Listener]:
         return set()
     listeners: set[Listener] = set()
     for conn in psutil.net_connections(kind="inet"):
-        if conn.status == psutil.CONN_LISTEN:
-            if conn.laddr:
-                proto = "tcp" if conn.type.name == "SOCK_STREAM" else "udp"
-                listeners.add(
-                    Listener(
-                        proto=proto,
-                        port=conn.laddr.port,
-                        local_ip=conn.laddr.ip,
-                    )
+        if _is_psutil_listener(conn):
+            proto = "tcp" if conn.type.name == "SOCK_STREAM" else "udp"
+            listeners.add(
+                Listener(
+                    proto=proto,
+                    port=conn.laddr.port,
+                    local_ip=conn.laddr.ip,
                 )
+            )
     return listeners
 
 
@@ -163,8 +186,9 @@ def discover_with_psutil_ipv6() -> set[Listener]:
         return set()
     listeners: set[Listener] = set()
     for conn in psutil.net_connections(kind="inet6"):
-        if conn.status == psutil.CONN_LISTEN:
-            if conn.laddr:
-                proto = "tcp" if conn.type.name == "SOCK_STREAM" else "udp"
-                listeners.add(Listener(proto=proto, port=conn.laddr.port, local_ip=conn.laddr.ip))
+        if _is_psutil_listener(conn):
+            proto = "tcp" if conn.type.name == "SOCK_STREAM" else "udp"
+            listeners.add(Listener(proto=proto, port=conn.laddr.port, local_ip=conn.laddr.ip))
     return listeners
+
+
