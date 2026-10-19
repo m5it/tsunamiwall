@@ -327,13 +327,17 @@ class Daemon:
             family="ipv4",
         )
 
-        # IPv6 chain mirrors IPv4 policy when enabled.
+        # IPv6 chain mirrors IPv4 allow policy for real services and per-IP rules,
+        # but honeypots currently bind IPv4 only (to avoid fd exhaustion), so we must
+        # not open those ports on the IPv6 side.  IPv6 probes to those ports are
+        # dropped and logged instead, which is the safe behaviour until IPv6
+        # honeypot listeners are implemented.
         if self._firewall_ipv6 is not None:
             try:
                 self._firewall_ipv6.build_rules(
                     self.cfg.ipv6_chain,
                     managed_allowed,
-                    honeypot_ports,
+                    set(),  # no IPv6 honeypot listeners yet
                     trusted_ips=self.cfg.trusted_ips,
                     allowed_per_ip=allowed_per_ip,
                     blocked_ports=self.blocked_ports,
