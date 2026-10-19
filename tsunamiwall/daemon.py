@@ -61,8 +61,13 @@ class Daemon:
         self._hit_log_fh.flush()
         logger.info("Honeypot hit: %s", line)
 
+
     def _payload_callback(self, session) -> None:
-        """Write a captured payload to disk and rotate payload storage."""
+        """Write a captured payload to disk.
+
+        Payload retention cleanup is performed periodically by the discovery
+        loop so that a large archive cannot block the event loop on every hit.
+        """
         try:
             self._payload_writer(session)
         except PermissionError as exc:
@@ -79,13 +84,6 @@ class Daemon:
                 session.src_ip,
                 session.src_port,
             )
-        try:
-            cleanup_payloads(
-                self.cfg.payload_log_dir,
-                self.cfg.payload_log_max_bytes,
-            )
-        except Exception:
-            logger.exception("Payload retention cleanup failed")
 
     async def start(self) -> None:
         os.makedirs(self.cfg.run_dir, exist_ok=True, mode=0o750)
@@ -224,11 +222,15 @@ class Daemon:
             self._save_state()
             self._remove_pid()
             self._firewall.reset(self.cfg.iptables_chain, family="ipv4")
-            if self._firewall_ipv6 is not None:
-                try:
-                    self._firewall_ipv6.reset(self.cfg.ipv6_chain, family="ipv6")
-                except Exception:
-                    logger.exception("IPv6 reset during stop failed")
+            # Always reset the IPv6 chain too, even if enable_ipv6 is currently
+            # false, so stale rules from a previous IPv6-enabled run do not
+            # remain. Use the dedicated IPv6 backend if we have one, otherwise
+            # create it just for cleanup.
+            try:
+                backend_ipv6 = self._firewall_ipv6 or get_backend(self.cfg, family="ipv6")
+                backend_ipv6.reset(self.cfg.ipv6_chain, family="ipv6")
+            except Exception:
+                logger.exception("IPv6 reset during stop failed")
             logger.info("TsunamiWall daemon stopped")
             self._cleanup_done.set()
 
@@ -253,9 +255,17 @@ class Daemon:
                     if rotated is not None:
                         self._hit_log_fh.close()
                         self._hit_log_fh = self._open_hit_log()
-                    cleanup_payloads(self.cfg.payload_log_dir, self.cfg.payload_log_max_bytes)
+                    # Run the potentially expensive payload scan off the event loop.
+                    try:
+                        await asyncio.to_thread(
+                            cleanup_payloads,
+                            self.cfg.payload_log_dir,
+                            self.cfg.payload_log_max_bytes,
+                        )
+                    except Exception:
+                        logger.exception("Payload retention cleanup failed")
                 except Exception:
-                    logger.exception("Log/payload rotation failed")
+                    logger.exception("Log rotation failed")
 
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=self.cfg.discovery_interval)
