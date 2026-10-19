@@ -61,8 +61,13 @@ class Daemon:
         self._hit_log_fh.flush()
         logger.info("Honeypot hit: %s", line)
 
+
     def _payload_callback(self, session) -> None:
-        """Write a captured payload to disk and rotate payload storage."""
+        """Write a captured payload to disk.
+
+        Payload retention cleanup is performed periodically by the discovery
+        loop so that a large archive cannot block the event loop on every hit.
+        """
         try:
             self._payload_writer(session)
         except PermissionError as exc:
@@ -79,13 +84,6 @@ class Daemon:
                 session.src_ip,
                 session.src_port,
             )
-        try:
-            cleanup_payloads(
-                self.cfg.payload_log_dir,
-                self.cfg.payload_log_max_bytes,
-            )
-        except Exception:
-            logger.exception("Payload retention cleanup failed")
 
     async def start(self) -> None:
         os.makedirs(self.cfg.run_dir, exist_ok=True, mode=0o750)
@@ -257,9 +255,17 @@ class Daemon:
                     if rotated is not None:
                         self._hit_log_fh.close()
                         self._hit_log_fh = self._open_hit_log()
-                    cleanup_payloads(self.cfg.payload_log_dir, self.cfg.payload_log_max_bytes)
+                    # Run the potentially expensive payload scan off the event loop.
+                    try:
+                        await asyncio.to_thread(
+                            cleanup_payloads,
+                            self.cfg.payload_log_dir,
+                            self.cfg.payload_log_max_bytes,
+                        )
+                    except Exception:
+                        logger.exception("Payload retention cleanup failed")
                 except Exception:
-                    logger.exception("Log/payload rotation failed")
+                    logger.exception("Log rotation failed")
 
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=self.cfg.discovery_interval)
