@@ -22,6 +22,9 @@ def rotate_hit_log(hit_log_path: str, max_bytes: int, max_backups: int) -> Path 
 
     Returns the path of the newly rotated file (the old log renamed to .1)
     or ``None`` if no rotation happened.
+
+    Only *max_backups* backup files are retained. Older backups are deleted
+    so rotation cannot fill the disk.
     """
     path = Path(hit_log_path)
     if max_bytes <= 0 or _current_size(path) <= max_bytes:
@@ -42,10 +45,22 @@ def rotate_hit_log(hit_log_path: str, max_bytes: int, max_backups: int) -> Path 
         rotated.unlink()
     shutil.move(str(path), str(rotated))
     path.write_text("", encoding="utf-8")
+
+    # Enforce the backup cap: delete anything beyond max_backups.
+    if max_backups >= 0:
+        for p in path.parent.glob(path.name + ".*"):
+            suffix = p.suffix[1:]
+            if suffix.isdigit() and int(suffix) > max_backups:
+                try:
+                    p.unlink()
+                    logger.info("Pruned old log backup %s", p)
+                except FileNotFoundError:
+                    pass
+                except PermissionError:
+                    logger.warning("Permission denied removing %s", p)
+
     logger.info("Rotated %s to %s", path, rotated)
     return rotated
-
-
 def cleanup_payloads(payload_log_dir: str, max_bytes: int) -> None:
     """Remove oldest payload files under *payload_log_dir* until total size
     is at or below *max_bytes*. Metadata files are left in place so session

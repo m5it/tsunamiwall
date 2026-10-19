@@ -17,15 +17,6 @@ def test_rotate_hit_log_when_over_max_bytes():
         assert log_path.read_text(encoding="utf-8") == ""
 
 
-def test_no_rotation_when_under_max_bytes():
-    with tempfile.TemporaryDirectory() as tmpdir:
-        log_path = Path(tmpdir) / "hits.logl"
-        log_path.write_text("small", encoding="utf-8")
-
-        rotated = rotate_hit_log(str(log_path), max_bytes=1000, max_backups=3)
-        assert rotated is None
-
-
 def test_rotation_shifts_backups():
     with tempfile.TemporaryDirectory() as tmpdir:
         log_path = Path(tmpdir) / "hits.logl"
@@ -39,6 +30,51 @@ def test_rotation_shifts_backups():
         assert (Path(tmpdir) / "hits.logl.1").read_text(encoding="utf-8") == "x" * 2000
         assert (Path(tmpdir) / "hits.logl.2").read_text(encoding="utf-8") == "old1"
         assert (Path(tmpdir) / "hits.logl.3").read_text(encoding="utf-8") == "old2"
+
+
+def test_rotation_prunes_excess_backups():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        log_path = Path(tmpdir) / "hits.logl"
+        log_path.write_text("x" * 2000, encoding="utf-8")
+        # Pre-create more backups than max_backups allows.
+        (Path(tmpdir) / "hits.logl.1").write_text("old1", encoding="utf-8")
+        (Path(tmpdir) / "hits.logl.2").write_text("old2", encoding="utf-8")
+        (Path(tmpdir) / "hits.logl.3").write_text("old3", encoding="utf-8")
+        (Path(tmpdir) / "hits.logl.4").write_text("old4", encoding="utf-8")
+        (Path(tmpdir) / "hits.logl.5").write_text("old5", encoding="utf-8")
+
+        rotate_hit_log(str(log_path), max_bytes=1000, max_backups=3)
+
+        # Only .1, .2, .3 should survive.
+        assert (Path(tmpdir) / "hits.logl.1").exists()
+        assert (Path(tmpdir) / "hits.logl.2").exists()
+        assert (Path(tmpdir) / "hits.logl.3").exists()
+        assert not (Path(tmpdir) / "hits.logl.4").exists()
+        assert not (Path(tmpdir) / "hits.logl.5").exists()
+        assert not (Path(tmpdir) / "hits.logl.6").exists()
+
+
+def test_repeated_rotation_respects_max_backups():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        log_path = Path(tmpdir) / "hits.logl"
+
+        for i in range(6):
+            log_path.write_text(f"batch{i}" * 300, encoding="utf-8")
+            rotate_hit_log(str(log_path), max_bytes=100, max_backups=2)
+
+        backups = sorted(
+            int(p.suffix[1:]) for p in Path(tmpdir).glob("hits.logl.*") if p.suffix[1:].isdigit()
+        )
+        assert backups == [1, 2]
+
+
+def test_no_rotation_when_under_max_bytes():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        log_path = Path(tmpdir) / "hits.logl"
+        log_path.write_text("small", encoding="utf-8")
+
+        rotated = rotate_hit_log(str(log_path), max_bytes=1000, max_backups=3)
+        assert rotated is None
 
 
 def test_cleanup_payloads_removes_oldest_first():
