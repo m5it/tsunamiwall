@@ -14,6 +14,7 @@ All notable changes to TsunamiWall are documented in this file.
 - **Hit-log backup cap enforced** — `rotate_hit_log` now deletes backup files beyond `hit_log_max_backups`, so repeated rotations can no longer fill the disk.
 - **IP family filtering** — `trusted_ips` and per-IP allow rules are now filtered by address family before being passed to each firewall backend, so IPv4 rules never reach `ip6tables` and IPv6 rules never reach `iptables`.
 - **IPv6 honeypot ports not advertised** — honeypots bind IPv4 only, so the daemon no longer opens honeypot ports in the IPv6 `ip6tables` chain. IPv6 probes to those ports are dropped and logged instead of passing through to a non-existent listener.
+- **IPv6 reset on shutdown/reset is unconditional** — both normal daemon shutdown and `emergency_reset` now always attempt to flush the IPv6 chain, even when `enable_ipv6` is currently false. This removes stale IPv6 rules left behind after a previous IPv6-enabled run.
 
 ## [1.2.0] - 2026-10-17
 

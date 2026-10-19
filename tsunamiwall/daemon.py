@@ -224,11 +224,15 @@ class Daemon:
             self._save_state()
             self._remove_pid()
             self._firewall.reset(self.cfg.iptables_chain, family="ipv4")
-            if self._firewall_ipv6 is not None:
-                try:
-                    self._firewall_ipv6.reset(self.cfg.ipv6_chain, family="ipv6")
-                except Exception:
-                    logger.exception("IPv6 reset during stop failed")
+            # Always reset the IPv6 chain too, even if enable_ipv6 is currently
+            # false, so stale rules from a previous IPv6-enabled run do not
+            # remain. Use the dedicated IPv6 backend if we have one, otherwise
+            # create it just for cleanup.
+            try:
+                backend_ipv6 = self._firewall_ipv6 or get_backend(self.cfg, family="ipv6")
+                backend_ipv6.reset(self.cfg.ipv6_chain, family="ipv6")
+            except Exception:
+                logger.exception("IPv6 reset during stop failed")
             logger.info("TsunamiWall daemon stopped")
             self._cleanup_done.set()
 
