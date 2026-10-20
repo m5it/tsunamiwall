@@ -196,3 +196,84 @@ async def test_ipv6_disabled_does_not_discover_ipv6_ports(monkeypatch, tmp_path,
     assert calls, "discover_ports should be called"
     assert not any(c["include_ipv6"] for c in calls), "IPv6 discovery should be disabled"
 
+
+@pytest.mark.asyncio
+async def test_ipv6_startup_failure_is_fatal(monkeypatch, tmp_path, fake_firewall):
+    """When IPv6 build_rules fails during initial startup, the daemon must fail."""
+    cfg = Config(
+        run_dir=str(tmp_path / "run"),
+        log_dir=str(tmp_path / "logs"),
+        payload_log_dir=str(tmp_path / "payloads"),
+        enable_ipv6=True,
+        max_honeypots=0,
+    )
+
+    monkeypatch.setattr("tsunamiwall.daemon.discover_ports", lambda **kwargs: set())
+    monkeypatch.setattr("tsunamiwall.daemon.safe_ports", lambda used, cfg: set())
+
+    class FailingIPv6Backend:
+        def __init__(self, calls):
+            self.calls = calls
+
+        def build_rules(self, chain, allowed, honeypots, *, family, **kwargs):
+            self.calls.append(("build", family, chain))
+            if family == "ipv6":
+                raise RuntimeError("simulated IPv6 failure")
+
+        def reset(self, chain, family="ipv4"):
+            self.calls.append(("reset", family, chain))
+
+        def is_available(self):
+            return True
+
+    def factory(cfg, family):
+        return FailingIPv6Backend(fake_firewall)
+
+    monkeypatch.setattr("tsunamiwall.daemon.get_backend", factory)
+
+    daemon = Daemon(cfg)
+    with pytest.raises(RuntimeError, match="simulated IPv6 failure"):
+        await daemon._reconcile()
+
+
+@pytest.mark.asyncio
+async def test_ipv6_reconcile_failure_is_tolerated_after_startup(monkeypatch, tmp_path, fake_firewall):
+    """After startup, an IPv6 ruleset failure should be logged but not crash."""
+    cfg = Config(
+        run_dir=str(tmp_path / "run"),
+        log_dir=str(tmp_path / "logs"),
+        payload_log_dir=str(tmp_path / "payloads"),
+        enable_ipv6=True,
+        max_honeypots=0,
+    )
+
+    monkeypatch.setattr("tsunamiwall.daemon.discover_ports", lambda **kwargs: set())
+    monkeypatch.setattr("tsunamiwall.daemon.safe_ports", lambda used, cfg: set())
+
+    call_count = {"build": 0}
+
+    class CountingIPv6Backend:
+        def __init__(self):
+            self.calls = 0
+
+        def build_rules(self, chain, allowed, honeypots, *, family, **kwargs):
+            self.calls += 1
+            if family == "ipv6" and self.calls > 1:
+                raise RuntimeError("transient IPv6 failure")
+
+        def reset(self, chain, family="ipv4"):
+            pass
+
+        def is_available(self):
+            return True
+
+    def factory(cfg, family):
+        return CountingIPv6Backend()
+
+    monkeypatch.setattr("tsunamiwall.daemon.get_backend", factory)
+
+    daemon = Daemon(cfg)
+    await daemon._reconcile()  # startup succeeds
+    daemon._startup_phase = False
+    await daemon._reconcile()  # transient failure is tolerated
+

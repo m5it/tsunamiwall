@@ -42,6 +42,10 @@ class Daemon:
         self._server: asyncio.Server | None = None
         self._hit_log_fh = self._open_hit_log()
         self._payload_writer = default_payload_writer(self.cfg)
+        # Tracks whether the current _reconcile() is the initial one during
+        # daemon startup. IPv6 rule failures during startup are fatal; failures
+        # during periodic reconciles are logged but tolerated.
+        self._startup_phase = True
         # Firewall backends. The primary backend is always created. The IPv6
         # backend is only created when enable_ipv6 is true, except when the
         # user explicitly selects the ip6tables-only backend, in which case
@@ -99,7 +103,10 @@ class Daemon:
         self._write_pid()
 
         # Initial discovery and firewall setup.
-        await self._reconcile()
+        try:
+            await self._reconcile()
+        finally:
+            self._startup_phase = False
 
         # Background tasks.
         self._tasks = [
@@ -382,6 +389,14 @@ class Daemon:
                 )
             except Exception:
                 logger.exception("IPv6 rule build failed")
+                # During startup the daemon must not advertise success if an
+                # enabled IPv6 ruleset could not be installed. Re-raise so
+                # start() fails visibly and the operator knows IPv6 is
+                # unprotected. On periodic reconciles we log and continue,
+                # because a transient failure should not tear down working
+                # IPv4 protection.
+                if self._startup_phase:
+                    raise
 
         family_note = "IPv4 only" if self.cfg.firewall_backend == "ip6tables" else "IPv4/IPv6"
         logger.info("Reconciled: allowed=%s honeypots=%d family=%s", sorted(managed_allowed), len(honeypot_ports), family_note)

@@ -5,11 +5,13 @@ import pytest
 import sys
 import types
 
+import tsunamiwall.discovery as tsunamiwall_discovery_module
 from tsunamiwall.discovery import (
     _hex_ip_port,
     _is_psutil_listener,
     _parse_proc_net_line,
     _read_proc_net,
+    _read_proc_net_ipv6,
     discover_listeners,
     discover_ports,
     discover_with_psutil,
@@ -201,7 +203,7 @@ def test_read_proc_net_tcp6_parses_ipv6_listener(tmp_path, monkeypatch):
     path = tmp_path / "tcp6"
     path.write_text(data, encoding="utf-8")
 
-    listeners = list(tsunamiwall.discovery._read_proc_net_ipv6(str(path), "tcp"))
+    listeners = list(_read_proc_net_ipv6(str(path), "tcp"))
     assert len(listeners) == 1
     assert listeners[0].port == 80
     assert listeners[0].local_ip == "::"
@@ -217,14 +219,13 @@ def test_read_proc_net_udp6_skips_connected_sockets(tmp_path, monkeypatch):
     path = tmp_path / "udp6"
     path.write_text(data, encoding="utf-8")
 
-    listeners = list(tsunamiwall.discovery._read_proc_net_ipv6(str(path), "udp"))
+    listeners = list(_read_proc_net_ipv6(str(path), "udp"))
     ports = {l.port for l in listeners}
     assert ports == {8080}
 
 
-def test_discover_listeners_includes_ipv6_when_requested(tmp_path, monkeypatch):
+def test_discover_listeners_includes_ipv6_when_requested(monkeypatch, tmp_path):
     """When include_ipv6 is true, IPv6 listeners from /proc/net should be included."""
-    # Provide fake IPv4 files so the proc-net path is taken.
     proc_dir = tmp_path / "proc_net"
     proc_dir.mkdir()
     tcp4 = proc_dir / "tcp"
@@ -254,22 +255,29 @@ def test_discover_listeners_includes_ipv6_when_requested(tmp_path, monkeypatch):
         encoding="utf-8",
     )
 
+    # Map the exact /proc/net paths to our fake files so the real helpers read them.
+    mapping = {
+        "/proc/net/tcp": str(tcp4),
+        "/proc/net/tcp6": str(tcp6),
+        "/proc/net/udp": str(udp4),
+        "/proc/net/udp6": str(udp6),
+    }
+
     def exists(path):
-        return str(path) == str(tcp4)
+        return path in mapping
 
     monkeypatch.setattr("os.path.exists", exists)
 
-    def read_proc_net(path, proto):
-        # Redirect the requested files to our fake ones.
-        if "tcp6" in path:
-            return list(tsunamiwall.discovery._read_proc_net_ipv6(str(tcp6), proto))
-        if "tcp" in path:
-            return list(tsunamiwall.discovery._read_proc_net(str(tcp4), proto))
-        if "udp6" in path:
-            return list(tsunamiwall.discovery._read_proc_net_ipv6(str(udp6), proto))
-        return list(tsunamiwall.discovery._read_proc_net(str(udp4), proto))
+    import builtins
 
-    monkeypatch.setattr("tsunamiwall.discovery._read_proc_net", read_proc_net)
+    real_open = builtins.open
+
+    def fake_open(path, *args, **kwargs):
+        if path in mapping:
+            path = mapping[path]
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.open", fake_open)
 
     listeners = discover_listeners(include_tcp=True, include_udp=True, include_ipv6=True)
     ports = {l.port for l in listeners}
