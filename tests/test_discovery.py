@@ -195,19 +195,21 @@ def test_is_psutil_listener_tcp_requires_listen():
 
 
 def test_read_proc_net_tcp6_parses_ipv6_listener(tmp_path, monkeypatch):
-    """_read_proc_net_ipv6 should parse a listening IPv6 TCP socket."""
+    """_read_proc_net_ipv6 should parse listening IPv6 TCP sockets, including ::1."""
     data = """  sl  local_address                         remote_address                        st tx_queue:rx_queue tr:tm->when retrnsmt   uid  timeout inode
    0: 00000000000000000000000000000000:0050 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 12345
-   1: 00000000000000000000000001000000:0051 00000000000000000000000000000000:0000 01 00000000:00000000 00:00000000 00000000     0        0 12346
+   1: 00000000000000000000000001000000:0051 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 12346
+   2: 00000000000000000000000001000000:0052 00000000000000000000000000000000:0000 01 00000000:00000000 00:00000000 00000000     0        0 12347
 """
     path = tmp_path / "tcp6"
     path.write_text(data, encoding="utf-8")
 
     listeners = list(_read_proc_net_ipv6(str(path), "tcp"))
-    assert len(listeners) == 1
-    assert listeners[0].port == 80
-    assert listeners[0].local_ip == "::"
-    assert listeners[0].proto == "tcp"
+    assert len(listeners) == 2
+    by_port = {l.port: l.local_ip for l in listeners}
+    assert by_port[80] == "::"
+    # The kernel stores ::1 as four host-order words: last word 0x01000000 in hex.
+    assert by_port[81] == "::1"
 
 
 def test_read_proc_net_udp6_skips_connected_sockets(tmp_path, monkeypatch):

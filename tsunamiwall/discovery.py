@@ -95,7 +95,9 @@ def _read_proc_net_ipv6(path: str, proto: str) -> Iterable[Listener]:
     """Yield IPv6 listeners from a /proc/net/{tcp6,udp6} file.
 
     /proc/net/tcp6/udp6 address fields are 128-bit IPv6 addresses followed by
-    a port, formatted as eight 4-hex-digit groups and a 4-hex port:
+    a port, formatted as 32 hex digits and a 4-hex port. The kernel stores the
+    address as four host-order 32-bit words, so on little-endian hosts the bytes
+    within each 32-bit word are reversed compared to network byte order:
       00000000000000000000000000000000:0050  ... :: port 80
       00000000000000000000000001000000:0050  ... ::1 port 80
     """
@@ -126,6 +128,11 @@ def _read_proc_net_ipv6(path: str, proto: str) -> Iterable[Listener]:
                 addr_bytes = bytes.fromhex(addr_hex.zfill(32))
             except ValueError:
                 continue
+            # Reverse each 32-bit word to convert from the kernel's host-order
+            # representation back to network byte order.
+            addr_bytes = b"".join(
+                addr_bytes[i : i + 4][::-1] for i in range(0, 16, 4)
+            )
             ip = ":".join(f"{addr_bytes[i]:02x}{addr_bytes[i + 1]:02x}" for i in range(0, 16, 2))
             # Compress IPv6 per RFC 5952-ish: collapse longest run of zeros.
             ip = _compress_ipv6(ip)
