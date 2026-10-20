@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from tsunamiwall.config import Config
@@ -276,4 +278,47 @@ async def test_ipv6_reconcile_failure_is_tolerated_after_startup(monkeypatch, tm
     await daemon._reconcile()  # startup succeeds
     daemon._startup_phase = False
     await daemon._reconcile()  # transient failure is tolerated
+
+
+@pytest.mark.asyncio
+async def test_startup_rollback_on_ipv6_failure(monkeypatch, tmp_path):
+    """If IPv6 build_rules fails during start(), stop() must roll back primary rules and the PID file."""
+    cfg = Config(
+        run_dir=str(tmp_path / "run"),
+        log_dir=str(tmp_path / "logs"),
+        payload_log_dir=str(tmp_path / "payloads"),
+        enable_ipv6=True,
+        max_honeypots=0,
+    )
+
+    monkeypatch.setattr("tsunamiwall.daemon.discover_ports", lambda **kwargs: set())
+    monkeypatch.setattr("tsunamiwall.daemon.safe_ports", lambda used, cfg: set())
+
+    calls = []
+
+    class FailingIPv6Backend:
+        def __init__(self, family):
+            self.family = family
+
+        def build_rules(self, chain, allowed, honeypots, *, family, **kwargs):
+            calls.append(("build", family, chain))
+            if family == "ipv6":
+                raise RuntimeError("simulated IPv6 failure")
+
+        def reset(self, chain, family="ipv4"):
+            calls.append(("reset", family, chain))
+
+        def is_available(self):
+            return True
+
+    monkeypatch.setattr("tsunamiwall.daemon.get_backend", lambda cfg, family: FailingIPv6Backend(family))
+
+    daemon = Daemon(cfg)
+    with pytest.raises(RuntimeError, match="simulated IPv6 failure"):
+        await daemon.start()
+
+    assert not Path(cfg.pid_path).exists(), "PID file must be removed on startup rollback"
+    resets = [c for c in calls if c[0] == "reset"]
+    assert any(c[1] == "ipv4" for c in resets), "IPv4 chain must be reset during rollback"
+    assert any(c[1] == "ipv6" for c in resets), "IPv6 chain must be reset during rollback"
 

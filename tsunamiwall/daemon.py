@@ -105,6 +105,10 @@ class Daemon:
         # Initial discovery and firewall setup.
         try:
             await self._reconcile()
+        except Exception:
+            logger.exception("Initial reconcile failed; rolling back")
+            await self.stop()
+            raise
         finally:
             self._startup_phase = False
 
