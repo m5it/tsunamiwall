@@ -322,3 +322,39 @@ async def test_startup_rollback_on_ipv6_failure(monkeypatch, tmp_path):
     assert any(c[1] == "ipv4" for c in resets), "IPv4 chain must be reset during rollback"
     assert any(c[1] == "ipv6" for c in resets), "IPv6 chain must be reset during rollback"
 
+
+@pytest.mark.asyncio
+async def test_reconcile_mirrors_discovered_ports_across_ipv4_and_ipv6(monkeypatch, tmp_path, fake_firewall):
+    """Discovered real-service ports are mirrored to both IPv4 and IPv6 rulesets.
+
+    This reflects the daemon's intentional policy: a listening port represents a
+    service, and most dual-stack services use the same port on both families, so
+    allowing the port on both keeps the rulesets consistent and simple.
+    """
+    cfg = Config(
+        run_dir=str(tmp_path / "run"),
+        log_dir=str(tmp_path / "logs"),
+        payload_log_dir=str(tmp_path / "payloads"),
+        enable_ipv6=True,
+        auto_block_listeners=False,
+        max_honeypots=0,
+    )
+
+    def fake_discover_ports(*, include_tcp, include_udp, include_ipv6):
+        # 8080 is discovered on IPv4 only, 8443 on IPv6 only.
+        return {8080, 8443}
+
+    monkeypatch.setattr("tsunamiwall.daemon.discover_ports", fake_discover_ports)
+    monkeypatch.setattr("tsunamiwall.daemon.safe_ports", lambda used, cfg: set())
+
+    daemon = Daemon(cfg)
+    await daemon._reconcile()
+
+    ipv4_calls = [c for c in fake_firewall if c[0] == "build" and c[1] == "ipv4"]
+    ipv6_calls = [c for c in fake_firewall if c[0] == "build" and c[1] == "ipv6"]
+    assert ipv4_calls
+    assert ipv6_calls
+    # Both services must appear in both rulesets because of mirroring.
+    assert {8080, 8443}.issubset(ipv4_calls[0][3])
+    assert {8080, 8443}.issubset(ipv6_calls[0][3])
+

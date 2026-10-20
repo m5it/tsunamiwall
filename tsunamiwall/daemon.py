@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config, default_config, safe_ports
-from .discovery import discover_ports
+from .discovery import discover_ports, discover_ports_by_family
 from .firewall import get_backend
 from .honeypot import (
     HitEvent,
@@ -301,6 +301,12 @@ class Daemon:
         # Discover real listening sockets. IPv6 must be included whenever the
         # daemon manages an IPv6 ruleset, otherwise IPv6-only services would be
         # omitted from the auto-allowed set in default (non-strict) mode.
+        # The daemon currently mirrors discovered real-service ports across both
+        # address families: a service listening on a port is allowed on IPv4 and
+        # IPv6 regardless of which family it actually bound. This matches the
+        # common dual-stack pattern and keeps the rulesets small and consistent.
+        # Strict per-family allow lists can be built with discover_ports_by_family()
+        # if a future configuration option requires them.
         ipv6_enabled = (
             self.cfg.enable_ipv6 or self.cfg.firewall_backend == "ip6tables"
         )

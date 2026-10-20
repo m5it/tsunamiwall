@@ -196,20 +196,66 @@ def discover_listeners(
     return listeners
 
 
+def discover_ports_by_family(
+    *, include_tcp: bool = True, include_udp: bool = True, include_ipv6: bool = True
+) -> dict[str, set[int]]:
+    """Return listening ports grouped by address family.
+
+    The returned mapping has ``ipv4`` and ``ipv6`` keys. IPv4 is always scanned;
+    IPv6 is only scanned when ``include_ipv6`` is true. This helper lets
+    callers build strict per-family allow lists instead of mirroring every
+    discovered port across both families.
+
+    Note: psutil's ``inet`` and ``inet6`` queries may return the same socket
+    twice for dual-stack listeners; we de-duplicate by port within each family.
+    """
+    ipv4: set[int] = set()
+    ipv6: set[int] = set()
+    proc_net_available = os.path.exists("/proc/net/tcp")
+
+    if proc_net_available:
+        if include_tcp:
+            ipv4.update(l.port for l in _read_proc_net("/proc/net/tcp", "tcp"))
+            if include_ipv6:
+                ipv6.update(l.port for l in _read_proc_net_ipv6("/proc/net/tcp6", "tcp"))
+        if include_udp:
+            ipv4.update(l.port for l in _read_proc_net("/proc/net/udp", "udp"))
+            if include_ipv6:
+                ipv6.update(l.port for l in _read_proc_net_ipv6("/proc/net/udp6", "udp"))
+    else:
+        # macOS / psutil path. Filter each listener by address family because
+        # psutil's "inet" kind can return both IPv4 and IPv6 sockets.
+        for listener in discover_with_psutil():
+            if ":" in listener.local_ip:
+                ipv6.add(listener.port)
+            else:
+                ipv4.add(listener.port)
+        if include_ipv6:
+            for listener in discover_with_psutil_ipv6():
+                if ":" in listener.local_ip:
+                    ipv6.add(listener.port)
+                else:
+                    ipv4.add(listener.port)
+
+    return {"ipv4": ipv4, "ipv6": ipv6}
+
+
 def discover_ports(
     *, include_tcp: bool = True, include_udp: bool = True, include_ipv6: bool = False
 ) -> set[int]:
     """Return just the port numbers of listening sockets.
 
-    Note: even when include_ipv6 is true, the returned set is only port
-    numbers. The caller must decide whether to manage IPv4, IPv6, or both.
+    This returns the union of IPv4 and (optionally) IPv6 listening ports. The
+    daemon intentionally mirrors discovered real-service ports across both
+    address families because a port number identifies a service regardless of the
+    transport, and most dual-stack services listen on the same port on both
+    IPv4 and IPv6. Callers that need strict per-family allow lists should use
+    :func:`discover_ports_by_family` instead.
     """
-    return {
-        l.port
-        for l in discover_listeners(
-            include_tcp=include_tcp, include_udp=include_udp, include_ipv6=include_ipv6
-        )
-    }
+    listeners = discover_listeners(
+        include_tcp=include_tcp, include_udp=include_udp, include_ipv6=include_ipv6
+    )
+    return {l.port for l in listeners}
 
 
 def has_ipv6_listener(port: int) -> bool:
@@ -245,7 +291,7 @@ def discover_with_psutil() -> set[Listener]:
     except ImportError:
         return set()
     listeners: set[Listener] = set()
-    for conn in psutil.net_connections(kind="inet"):
+    for conn in psutil.net_connections(kind="inet4"):
         if _is_psutil_listener(conn):
             proto = "tcp" if conn.type.name == "SOCK_STREAM" else "udp"
             listeners.add(

@@ -14,6 +14,7 @@ from tsunamiwall.discovery import (
     _read_proc_net_ipv6,
     discover_listeners,
     discover_ports,
+    discover_ports_by_family,
     discover_with_psutil,
 )
 
@@ -285,4 +286,77 @@ def test_discover_listeners_includes_ipv6_when_requested(monkeypatch, tmp_path):
     ports = {l.port for l in listeners}
     assert ports == {80, 443}
     assert any(l.local_ip == "::" and l.port == 443 for l in listeners)
+
+
+def test_discover_ports_by_family_separates_ipv4_and_ipv6(tmp_path, monkeypatch):
+    """discover_ports_by_family should return distinct IPv4 and IPv6 port sets."""
+    proc_dir = tmp_path / "proc_net"
+    proc_dir.mkdir()
+    (proc_dir / "tcp").write_text(
+        """  sl  local_address rem_address st tx_queue:rx_queue tr:tm->when retrnsmt   uid  timeout inode
+   0: 00000000:0050 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 1
+""",
+        encoding="utf-8",
+    )
+    (proc_dir / "tcp6").write_text(
+        """  sl  local_address                         remote_address                        st tx_queue:rx_queue tr:tm->when retrnsmt   uid  timeout inode
+   0: 00000000000000000000000000000000:01BB 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 2
+""",
+        encoding="utf-8",
+    )
+    (proc_dir / "udp").write_text(
+        """  sl  local_address rem_address st tx_queue:rx_queue tr:tm->when retrnsmt   uid  timeout inode
+""",
+        encoding="utf-8",
+    )
+    (proc_dir / "udp6").write_text(
+        """  sl  local_address                         remote_address                        st tx_queue:rx_queue tr:tm->when retrnsmt   uid  timeout inode
+""",
+        encoding="utf-8",
+    )
+
+    mapping = {
+        "/proc/net/tcp": str(proc_dir / "tcp"),
+        "/proc/net/tcp6": str(proc_dir / "tcp6"),
+        "/proc/net/udp": str(proc_dir / "udp"),
+        "/proc/net/udp6": str(proc_dir / "udp6"),
+    }
+
+    def exists(path):
+        return path in mapping
+
+    monkeypatch.setattr("os.path.exists", exists)
+
+    import builtins
+
+    real_open = builtins.open
+
+    def fake_open(path, *args, **kwargs):
+        if path in mapping:
+            path = mapping[path]
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.open", fake_open)
+
+    result = discover_ports_by_family(include_tcp=True, include_udp=True, include_ipv6=True)
+    assert result["ipv4"] == {80}, f"Expected IPv4 port 80, got {result['ipv4']}"
+    assert result["ipv6"] == {443}, f"Expected IPv6 port 443, got {result['ipv6']}"
+
+
+def test_discover_with_psutil_uses_inet4_kind(monkeypatch):
+    """discover_with_psutil must request IPv4-only connections from psutil."""
+    psutil = _fake_psutil_module()
+    sys.modules["psutil"] = psutil
+
+    requested_kinds = []
+
+    def fake_net_connections(kind):
+        requested_kinds.append(kind)
+        return []
+
+    psutil.net_connections = fake_net_connections
+
+    discover_with_psutil()
+    del sys.modules["psutil"]
+    assert requested_kinds == ["inet4"], f"Expected kind='inet4', got {requested_kinds}"
 
