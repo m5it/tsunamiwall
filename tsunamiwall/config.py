@@ -158,7 +158,17 @@ def _coerce_field(name: str, value: Any, field_type: str | type) -> Any:
     if type_name == "str":
         return str(value)
     if type_name == "bool":
-        return bool(value)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered == "true":
+                return True
+            if lowered == "false":
+                return False
+        raise ValueError(
+            f"Config key {name} must be a boolean (true/false), got {value!r}"
+        )
     raise TypeError(f"Unsupported config field type for {name}: {field_type}")
 
 

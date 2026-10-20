@@ -60,3 +60,32 @@ def test_load_config_via_environment(monkeypatch):
         assert cfg.discovery_interval == 5.0
     finally:
         os.remove(path)
+
+
+def test_load_config_accepts_string_booleans():
+    """Quoted "true" / "false" strings should be parsed as booleans."""
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as fh:
+        fh.write('enable_ipv6: "true"\n')
+        fh.write('auto_block_listeners: "false"\n')
+        path = fh.name
+    try:
+        cfg = load_config(path)
+        assert cfg.enable_ipv6 is True
+        assert cfg.auto_block_listeners is False
+    finally:
+        os.remove(path)
+
+
+def test_load_config_rejects_invalid_string_booleans():
+    """Arbitrary string values for boolean fields should raise."""
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as fh:
+        fh.write('enable_ipv6: "yes"\n')
+        path = fh.name
+    try:
+        with pytest.raises(ValueError, match="must be a boolean"):
+            load_config(path)
+    finally:
+        os.remove(path)
+

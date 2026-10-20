@@ -13,6 +13,7 @@ All notable changes to TsunamiWall are documented in this file.
 - **`tail` follows log rotation** — `scripts/tsunamiwall-logs tail` now detects when `hits.logl` is rotated and reopens the current file, so it no longer gets stuck on an old inode and misses new honeypot hits.
 - **Consistent log viewer time display** — hit times are now converted from UTC to local time before printing, so `tail`/`recent` timestamps match the payload mtime display and `date`.
 - **Hit-log backup cap enforced** — `rotate_hit_log` now deletes backup files beyond `hit_log_max_backups`, so repeated rotations can no longer fill the disk.
+- **Quoted boolean config values parsed correctly** — boolean fields such as `enable_ipv6: "false"` and `auto_block_listeners: "true"` are now parsed as real booleans instead of being truthy strings. Invalid strings (e.g. `"yes"`) raise a clear `ValueError`.
 - **Cross-platform service discovery** — socket discovery now prefers `psutil` when `/proc/net/tcp` and `/proc/net/udp` are unavailable (e.g. macOS).
 - **No-op backend** — `firewall_backend: noop` disables firewall rule management for testing or unsupported platforms.
 - **Per-hit IP family + payload size** — honeypot hit logs now include `family` (`ipv4` or `ipv6`) and `payload_size` fields so logs, the live TUI, and `tsunamiwall-logs` can distinguish IPv4/IPv6 probes and show whether a payload was captured without needing to read disk.
