@@ -61,7 +61,9 @@ log_rate_limit: 10                # average LOG packets/second
 log_rate_burst: 20               # LOG burst before rate limiting kicks in
 
 # IPv6 support. Set to true on dual-stack hosts so TsunamiWall also manages an
-# ip6tables chain alongside the IPv4 iptables chain.
+# ip6tables chain alongside the IPv4 iptables chain. Honeypots currently bind to
+# IPv4 only (to avoid file-descriptor exhaustion), so honeypot ports are not
+# opened on the IPv6 side.
 enable_ipv6: false
 
 # Firewall backend. "auto" selects iptables on Linux and pfctl on macOS.
