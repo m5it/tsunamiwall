@@ -190,3 +190,89 @@ def test_is_psutil_listener_tcp_requires_listen():
     result = _is_psutil_listener(fake_conn)
     del sys.modules["psutil"]
     assert result is False
+
+
+def test_read_proc_net_tcp6_parses_ipv6_listener(tmp_path, monkeypatch):
+    """_read_proc_net_ipv6 should parse a listening IPv6 TCP socket."""
+    data = """  sl  local_address                         remote_address                        st tx_queue:rx_queue tr:tm->when retrnsmt   uid  timeout inode
+   0: 00000000000000000000000000000000:0050 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 12345
+   1: 00000000000000000000000001000000:0051 00000000000000000000000000000000:0000 01 00000000:00000000 00:00000000 00000000     0        0 12346
+"""
+    path = tmp_path / "tcp6"
+    path.write_text(data, encoding="utf-8")
+
+    listeners = list(tsunamiwall.discovery._read_proc_net_ipv6(str(path), "tcp"))
+    assert len(listeners) == 1
+    assert listeners[0].port == 80
+    assert listeners[0].local_ip == "::"
+    assert listeners[0].proto == "tcp"
+
+
+def test_read_proc_net_udp6_skips_connected_sockets(tmp_path, monkeypatch):
+    """_read_proc_net_ipv6 should skip connected UDP6 sockets."""
+    data = """  sl  local_address                         remote_address                        st tx_queue:rx_queue tr:tm->when retrnsmt   uid  timeout inode
+   0: 00000000000000000000000000000000:1F90 00000000000000000000000000000000:0000 07 00000000:00000000 00:00000000 00000000   100        0 12345
+   1: 00000000000000000000000000000000:1F91 00000000000000000000000001000000:1234 07 00000000:00000000 00:00000000 00000000   100        0 12346
+"""
+    path = tmp_path / "udp6"
+    path.write_text(data, encoding="utf-8")
+
+    listeners = list(tsunamiwall.discovery._read_proc_net_ipv6(str(path), "udp"))
+    ports = {l.port for l in listeners}
+    assert ports == {8080}
+
+
+def test_discover_listeners_includes_ipv6_when_requested(tmp_path, monkeypatch):
+    """When include_ipv6 is true, IPv6 listeners from /proc/net should be included."""
+    # Provide fake IPv4 files so the proc-net path is taken.
+    proc_dir = tmp_path / "proc_net"
+    proc_dir.mkdir()
+    tcp4 = proc_dir / "tcp"
+    tcp4.write_text(
+        """  sl  local_address rem_address st tx_queue:rx_queue tr:tm->when retrnsmt   uid  timeout inode
+   0: 00000000:0050 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 1
+""",
+        encoding="utf-8",
+    )
+    tcp6 = proc_dir / "tcp6"
+    tcp6.write_text(
+        """  sl  local_address                         remote_address                        st tx_queue:rx_queue tr:tm->when retrnsmt   uid  timeout inode
+   0: 00000000000000000000000000000000:01BB 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 2
+""",
+        encoding="utf-8",
+    )
+    udp4 = proc_dir / "udp"
+    udp4.write_text(
+        """  sl  local_address rem_address st tx_queue:rx_queue tr:tm->when retrnsmt   uid  timeout inode
+""",
+        encoding="utf-8",
+    )
+    udp6 = proc_dir / "udp6"
+    udp6.write_text(
+        """  sl  local_address                         remote_address                        st tx_queue:rx_queue tr:tm->when retrnsmt   uid  timeout inode
+""",
+        encoding="utf-8",
+    )
+
+    def exists(path):
+        return str(path) == str(tcp4)
+
+    monkeypatch.setattr("os.path.exists", exists)
+
+    def read_proc_net(path, proto):
+        # Redirect the requested files to our fake ones.
+        if "tcp6" in path:
+            return list(tsunamiwall.discovery._read_proc_net_ipv6(str(tcp6), proto))
+        if "tcp" in path:
+            return list(tsunamiwall.discovery._read_proc_net(str(tcp4), proto))
+        if "udp6" in path:
+            return list(tsunamiwall.discovery._read_proc_net_ipv6(str(udp6), proto))
+        return list(tsunamiwall.discovery._read_proc_net(str(udp4), proto))
+
+    monkeypatch.setattr("tsunamiwall.discovery._read_proc_net", read_proc_net)
+
+    listeners = discover_listeners(include_tcp=True, include_udp=True, include_ipv6=True)
+    ports = {l.port for l in listeners}
+    assert ports == {80, 443}
+    assert any(l.local_ip == "::" and l.port == 443 for l in listeners)
+

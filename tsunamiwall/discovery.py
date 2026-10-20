@@ -1,4 +1,3 @@
-"""Discover listening IPv4 TCP and UDP sockets on the host."""
 
 from __future__ import annotations
 
@@ -56,8 +55,10 @@ def _hex_ip_port(addr_field: str) -> tuple[str, int] | None:
     return ip, port
 
 
-def _read_proc_net(path: str, proto: str) -> Iterable[Listener]:
-    """Yield listeners from a /proc/net/{tcp,udp} file."""
+
+
+def _read_proc_net(path: str, proto: str, family: str = "ipv4") -> Iterable[Listener]:
+    """Yield listeners from a /proc/net/{tcp,udp}[6] file."""
     if not os.path.exists(path):
         return
     with open(path, "r", encoding="utf-8", errors="ignore") as fh:
@@ -84,10 +85,78 @@ def _read_proc_net(path: str, proto: str) -> Iterable[Listener]:
                 # /proc/net/udp lists every UDP socket. A bound/listening UDP
                 # socket has no peer, so its remote address is 0.0.0.0:0.
                 # Connected UDP sockets have a non-zero remote address and must
-                # not be treated as listeners.
+                # not be treated as listeners. IPv6 uses the same zero check.
                 if remote_field != "00000000:0000":
                     continue
             yield Listener(proto=proto, port=port, local_ip=ip)
+
+
+def _read_proc_net_ipv6(path: str, proto: str) -> Iterable[Listener]:
+    """Yield IPv6 listeners from a /proc/net/{tcp6,udp6} file.
+
+    /proc/net/tcp6/udp6 address fields are 128-bit IPv6 addresses followed by
+    a port, formatted as eight 4-hex-digit groups and a 4-hex port:
+      00000000000000000000000000000000:0050  ... :: port 80
+      00000000000000000000000001000000:0050  ... ::1 port 80
+    """
+    if not os.path.exists(path):
+        return
+    with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+        header = True
+        for raw_line in fh:
+            line = raw_line.strip()
+            if not line:
+                continue
+            if header:
+                header = False
+                continue
+            parsed = _parse_proc_net_line(line)
+            if parsed is None:
+                continue
+            local_field, remote_field, state = parsed
+            try:
+                addr_hex, port_hex = local_field.rsplit(":", 1)
+            except ValueError:
+                continue
+            try:
+                port = int(port_hex, 16)
+            except ValueError:
+                continue
+            try:
+                addr_bytes = bytes.fromhex(addr_hex.zfill(32))
+            except ValueError:
+                continue
+            ip = ":".join(f"{addr_bytes[i]:02x}{addr_bytes[i + 1]:02x}" for i in range(0, 16, 2))
+            # Compress IPv6 per RFC 5952-ish: collapse longest run of zeros.
+            ip = _compress_ipv6(ip)
+            if proto == "tcp":
+                if state != 0x0A:
+                    continue
+            else:
+                if remote_field != "00000000000000000000000000000000:0000":
+                    continue
+            yield Listener(proto=proto, port=port, local_ip=ip)
+
+
+def _compress_ipv6(ip: str) -> str:
+    """Compress a fully expanded IPv6 address into its shortest textual form."""
+    groups = [g.lstrip("0") or "0" for g in ip.split(":")]
+    # Find longest run of "0" groups to collapse.
+    best_start = best_len = cur_start = cur_len = 0
+    for i, g in enumerate(groups):
+        if g == "0":
+            if cur_len == 0:
+                cur_start = i
+            cur_len += 1
+            if cur_len > best_len:
+                best_start, best_len = cur_start, cur_len
+        else:
+            cur_len = 0
+    if best_len <= 1:
+        return ":".join(groups)
+    prefix = ":".join(groups[:best_start])
+    suffix = ":".join(groups[best_start + best_len:])
+    return f"{prefix}::{suffix}"
 
 
 def discover_listeners(
@@ -96,8 +165,8 @@ def discover_listeners(
     """Return a set of listening sockets found in /proc/net or via psutil.
 
     On Linux, IPv4 is parsed directly from /proc/net/tcp and /proc/net/udp.
-    On macOS (or when /proc/net is unavailable), psutil is used instead.
-    IPv6 discovery defaults to off and requires psutil.
+    IPv6 is parsed from /proc/net/tcp6 and /proc/net/udp6 when include_ipv6 is
+    true. On macOS (or when /proc/net is unavailable), psutil is used instead.
     """
     listeners: set[Listener] = set()
     proc_net_available = os.path.exists("/proc/net/tcp")
@@ -105,13 +174,17 @@ def discover_listeners(
     if proc_net_available:
         if include_tcp:
             listeners.update(_read_proc_net("/proc/net/tcp", "tcp"))
+            if include_ipv6:
+                listeners.update(_read_proc_net_ipv6("/proc/net/tcp6", "tcp"))
         if include_udp:
             listeners.update(_read_proc_net("/proc/net/udp", "udp"))
+            if include_ipv6:
+                listeners.update(_read_proc_net_ipv6("/proc/net/udp6", "udp"))
     else:
         # macOS and other non-Linux platforms: rely on psutil.
         listeners.update(discover_with_psutil())
 
-    if include_ipv6:
+    if include_ipv6 and not proc_net_available:
         listeners.update(discover_with_psutil_ipv6())
     return listeners
 

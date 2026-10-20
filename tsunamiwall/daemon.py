@@ -287,7 +287,15 @@ class Daemon:
 
     async def _reconcile(self) -> None:
         """Re-scan sockets, update allowed set and honeypots, rewrite iptables."""
-        real_ports = discover_ports(include_tcp=True, include_udp=True)
+        # Discover real listening sockets. IPv6 must be included whenever the
+        # daemon manages an IPv6 ruleset, otherwise IPv6-only services would be
+        # omitted from the auto-allowed set in default (non-strict) mode.
+        ipv6_enabled = (
+            self.cfg.enable_ipv6 or self.cfg.firewall_backend == "ip6tables"
+        )
+        real_ports = discover_ports(
+            include_tcp=True, include_udp=True, include_ipv6=ipv6_enabled
+        )
 
         # Ports that are restricted to specific source IPs should not also be
         # allowed globally just because something is listening on them.

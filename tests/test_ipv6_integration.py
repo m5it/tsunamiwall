@@ -102,3 +102,97 @@ async def test_ip6tables_only_backend_builds_ipv6_not_ipv4(monkeypatch, tmp_path
     assert ipv6_calls, "IPv6 rules should be built in ip6tables-only mode"
     assert ipv6_calls[0][2] == "TSUNAMIWALL"
 
+
+@pytest.mark.asyncio
+async def test_ipv6_enabled_includes_ipv6_ports_in_managed_allowed(monkeypatch, tmp_path, fake_firewall):
+    """When enable_ipv6 is true, _reconcile should discover and allow IPv6-only ports."""
+    cfg = Config(
+        run_dir=str(tmp_path / "run"),
+        log_dir=str(tmp_path / "logs"),
+        payload_log_dir=str(tmp_path / "payloads"),
+        enable_ipv6=True,
+        auto_block_listeners=False,
+        max_honeypots=0,
+    )
+
+    def fake_discover_ports(*, include_tcp, include_udp, include_ipv6):
+        ports = {8080}  # IPv4 service
+        if include_ipv6:
+            ports.add(8443)  # IPv6-only service
+        return ports
+
+    monkeypatch.setattr("tsunamiwall.daemon.discover_ports", fake_discover_ports)
+    monkeypatch.setattr("tsunamiwall.daemon.safe_ports", lambda used, cfg: set())
+
+    daemon = Daemon(cfg)
+    await daemon._reconcile()
+
+    ipv4_calls = [c for c in fake_firewall if c[0] == "build" and c[1] == "ipv4"]
+    ipv6_calls = [c for c in fake_firewall if c[0] == "build" and c[1] == "ipv6"]
+    assert ipv4_calls, "IPv4 rules should be built"
+    assert ipv6_calls, "IPv6 rules should be built"
+    # Both the IPv4 and IPv6 rulesets must include the IPv6-only service port.
+    assert 8443 in ipv4_calls[0][3], "IPv6-only port must be allowed in IPv4 ruleset when enable_ipv6 is true"
+    assert 8443 in ipv6_calls[0][3], "IPv6-only port must be allowed in IPv6 ruleset"
+
+
+@pytest.mark.asyncio
+async def test_ip6tables_only_includes_ipv6_ports_in_managed_allowed(monkeypatch, tmp_path, fake_firewall):
+    """When firewall_backend is ip6tables, _reconcile should discover and allow IPv6-only ports."""
+    cfg = Config(
+        run_dir=str(tmp_path / "run"),
+        log_dir=str(tmp_path / "logs"),
+        payload_log_dir=str(tmp_path / "payloads"),
+        firewall_backend="ip6tables",
+        enable_ipv6=False,
+        auto_block_listeners=False,
+        max_honeypots=0,
+    )
+
+    def fake_discover_ports(*, include_tcp, include_udp, include_ipv6):
+        ports = {8080}  # IPv4 service (should be ignored by the IPv6 backend)
+        if include_ipv6:
+            ports.add(8443)  # IPv6-only service
+        return ports
+
+    monkeypatch.setattr("tsunamiwall.daemon.discover_ports", fake_discover_ports)
+    monkeypatch.setattr("tsunamiwall.daemon.safe_ports", lambda used, cfg: set())
+
+    daemon = Daemon(cfg)
+    await daemon._reconcile()
+
+    ipv4_calls = [c for c in fake_firewall if c[0] == "build" and c[1] == "ipv4"]
+    ipv6_calls = [c for c in fake_firewall if c[0] == "build" and c[1] == "ipv6"]
+    assert not ipv4_calls, "IPv4 rules should not be built in ip6tables-only mode"
+    assert ipv6_calls, "IPv6 rules should be built"
+    assert 8443 in ipv6_calls[0][3], "IPv6-only port must be allowed in IPv6 ruleset"
+
+
+@pytest.mark.asyncio
+async def test_ipv6_disabled_does_not_discover_ipv6_ports(monkeypatch, tmp_path, fake_firewall):
+    """When IPv6 is not enabled, _reconcile should not ask discover_ports for IPv6."""
+    cfg = Config(
+        run_dir=str(tmp_path / "run"),
+        log_dir=str(tmp_path / "logs"),
+        payload_log_dir=str(tmp_path / "payloads"),
+        enable_ipv6=False,
+        firewall_backend="iptables",
+        auto_block_listeners=False,
+        max_honeypots=0,
+    )
+
+    calls = []
+
+    def fake_discover_ports(*, include_tcp, include_udp, include_ipv6):
+        calls.append({"include_ipv6": include_ipv6})
+        return {8080}
+
+    monkeypatch.setattr("tsunamiwall.daemon.discover_ports", fake_discover_ports)
+    monkeypatch.setattr("tsunamiwall.daemon.safe_ports", lambda used, cfg: set())
+
+    daemon = Daemon(cfg)
+    await daemon._reconcile()
+
+    assert calls, "discover_ports should be called"
+    assert not any(c["include_ipv6"] for c in calls), "IPv6 discovery should be disabled"
+
