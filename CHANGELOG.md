@@ -8,6 +8,11 @@ All notable changes to TsunamiWall are documented in this file.
 
 ### Fixed
 
+## [1.3.1] - 2026-10-23
+
+### Fixed
+- Bumped package version to 1.3.1.
+
 ## [1.3.0] - 2026-10-23
 
 ### Added
