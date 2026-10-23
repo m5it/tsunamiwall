@@ -1,23 +1,23 @@
-import json
 import argparse
+import json
+import os
+import time
 from pathlib import Path
 
 import pytest
 
 from scripts.tsunamiwall_logs import (
     _dropped_ports,
+    _filter_hits,
     _find_payload_for_hit,
     _hex_snip,
     _iter_hits,
-    _parse_payload_terms,
     _payload_files,
     _sort_hits,
     _text_snip,
     cmd_recent,
     cmd_tail,
 )
-
-
 def make_sample_log(tmp_path: Path) -> Path:
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -132,42 +132,6 @@ def test_dropped_ports_parses_dpt(monkeypatch):
     assert 9999 not in counts
 
 
-def test_parse_payload_terms_by_ip():
-    args = argparse.Namespace(term=["3", "by-ip", "190.186.22.12"], country=None, last=None)
-    ip, cc, _dst, last = _parse_payload_terms(args)
-    assert ip == "190.186.22.12"
-    assert last == 3
-    assert cc is None
-    assert _dst is None
-
-
-def test_parse_payload_terms_by_country():
-    args = argparse.Namespace(term=["by-country", "DE", "5"], country=None, last=None)
-    ip, cc, _dst, last = _parse_payload_terms(args)
-    assert ip is None
-    assert cc == "DE"
-    assert last == 5
-    assert _dst is None
-
-
-def test_parse_payload_terms_backward_compat_ip():
-    args = argparse.Namespace(term=["1.2.3.4"], country=None, last=None)
-    ip, cc, _dst, last = _parse_payload_terms(args)
-    assert ip == "1.2.3.4"
-    assert cc is None
-    assert _dst is None
-    assert last is None
-
-
-def test_parse_payload_terms_by_dst():
-    args = argparse.Namespace(term=["3", "by-dst", "22"], country=None, last=None)
-    ip, cc, dst, last = _parse_payload_terms(args)
-    assert dst == 22
-    assert last == 3
-    assert ip is None
-    assert cc is None
-
-
 def test_sort_hits_newest_first():
     hits = [
         {"time": "2026-10-17T19:00:00Z", "src_ip": "1.2.3.4"},
@@ -188,7 +152,7 @@ def test_recent_shows_newest_first(capsys, tmp_path, monkeypatch):
         encoding="utf-8",
     )
     monkeypatch.setattr("scripts.tsunamiwall_logs._load_config", lambda _args: (None, log_dir))
-    cmd_recent(argparse.Namespace(config=None, count=2))
+    cmd_recent(argparse.Namespace(config=None, ip=None, country=None, src_port=None, dst_port=None, last=2))
     out = capsys.readouterr().out
     assert out.index("new") < out.index("old")
 
@@ -221,27 +185,61 @@ def test_tail_reopens_after_rotation(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("scripts.tsunamiwall_logs._load_config", lambda _args: (None, log_dir))
 
     with pytest.raises(SystemExit):
-        cmd_tail(argparse.Namespace(config=None))
+        cmd_tail(argparse.Namespace(config=None, ip=None, country=None, src_port=None, dst_port=None))
 
     out = capsys.readouterr().out
     assert "old" not in out  # initial seek-to-end skipped it
     assert "new" in out
 
 
-def test_parse_payload_terms_option_by_ip():
-    args = argparse.Namespace(term=[], country=None, last=3, by_ip="1.2.3.4", by_country=None, by_dst=None)
-    ip, cc, dst, last = _parse_payload_terms(args)
-    assert ip == "1.2.3.4"
-    assert last == 3
-    assert cc is None
-    assert dst is None
+def test_filter_hits_applies_ip_and_dst():
+    hits = [
+        {"src_ip": "1.2.3.4", "dst_port": 22, "country_code": "US"},
+        {"src_ip": "5.6.7.8", "dst_port": 22, "country_code": "CN"},
+        {"src_ip": "1.2.3.4", "dst_port": 80, "country_code": "US"},
+    ]
+    args = argparse.Namespace(ip="1.2.3.4", country=None, src_port=None, dst_port=22)
+    filtered = _filter_hits(hits, args)
+    assert len(filtered) == 1
+    assert filtered[0]["src_ip"] == "1.2.3.4"
 
 
-def test_parse_payload_terms_option_by_dst():
-    args = argparse.Namespace(term=["5"], country=None, last=None, by_ip=None, by_country=None, by_dst=22)
-    ip, cc, dst, last = _parse_payload_terms(args)
-    assert dst == 22
-    assert last == 5
-    assert ip is None
-    assert cc is None
+def test_hit_matches_date():
+    from scripts.tsunamiwall_logs import _hit_matches_date
+    assert _hit_matches_date({"time": "2026-10-20T12:34:56Z"}, "2026-10-20") is True
+    assert _hit_matches_date({"time": "2026-10-20T12:34:56"}, "2026-10-20") is True
+    assert _hit_matches_date({"time": "2026-10-21T00:00:00Z"}, "2026-10-20") is False
+    assert _hit_matches_date({"time": ""}, "2026-10-20") is False
+    assert _hit_matches_date({"time": "2026-10-20T12:34:56Z"}, None) is True
+
+
+def test_filter_hits_by_date():
+    hits = [
+        {"time": "2026-10-20T12:00:00Z", "src_ip": "1.2.3.4"},
+        {"time": "2026-10-21T12:00:00Z", "src_ip": "5.6.7.8"},
+        {"time": "2026-10-20T23:59:59Z", "src_ip": "9.9.9.9"},
+    ]
+    args = argparse.Namespace(ip=None, country=None, src_port=None, dst_port=None, date="2026-10-20")
+    filtered = _filter_hits(hits, args)
+    assert [h["src_ip"] for h in filtered] == ["1.2.3.4", "9.9.9.9"]
+
+
+def test_payload_files_filter_by_date(tmp_path):
+    from scripts.tsunamiwall_logs import _payload_files
+    import time
+    log_dir = tmp_path / "logs"
+    base = log_dir / "bycountry" / "US" / "1.2.3.4"
+    base.mkdir(parents=True)
+    f1 = base / "1000000000_80_12345.bin"
+    f1.write_bytes(b"old")
+    f2 = base / "2000000000_80_12345.bin"
+    f2.write_bytes(b"new")
+    # Set mtimes to known dates
+    day1 = time.mktime(time.strptime("2026-10-20", "%Y-%m-%d")) + 3600
+    day2 = time.mktime(time.strptime("2026-10-21", "%Y-%m-%d")) + 3600
+    os.utime(f1, (day1, day1))
+    os.utime(f2, (day2, day2))
+
+    files = _payload_files(log_dir, date_filter="2026-10-20")
+    assert files == [f1]
 

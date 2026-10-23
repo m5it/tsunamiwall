@@ -38,53 +38,116 @@ def _parser() -> argparse.ArgumentParser:
         description="View TsunamiWall honeypot hits and captured payloads.",
     )
     parser.add_argument(
+        "--version",
+        "-v",
+        action="version",
+        version=f"%(prog)s {__import__('tsunamiwall').__version__}",
+    )
+    parser.add_argument(
         "--config",
         "-c",
         metavar="PATH",
         help="path to TsunamiWall YAML config file (default: auto-detect)",
     )
-    sub = parser.add_subparsers(dest="command", required=True)
 
-    recent_p = sub.add_parser("recent", help=f"show the last {DEFAULT_TAIL} honeypot hits")
-    recent_p.add_argument("count", type=int, nargs="?", default=DEFAULT_TAIL, help="number of hits")
-
-    sub.add_parser("tail", help="follow the live hit log (like tail -f)")
-
-    by_ip = sub.add_parser("by-ip", help="show hits from one source IP")
-    by_ip.add_argument("ip", help="source IPv4/IPv6 address")
-
-    by_country = sub.add_parser("by-country", help="show hits from one country code")
-    by_country.add_argument("country", help="two-letter country code (e.g. US, CN)")
-
-    by_dst = sub.add_parser("by-dst", help="show hits on a destination port")
-    by_dst.add_argument("port", type=int, help="destination port")
-
-    payloads = sub.add_parser("payloads", help="list or show captured payloads")
-    payloads.add_argument("term", nargs="*", help="filter terms: IP, by-ip IP, by-country CC, by-dst PORT, or a number for --last")
-    payloads.add_argument("--country", metavar="CC", help="filter payloads by country code")
-    payloads.add_argument("--last", type=int, metavar="N", help="show only the N most recent payloads")
-    payloads.add_argument("--by-ip", metavar="IP", dest="by_ip", help="filter payloads by source IP")
-    payloads.add_argument("--by-country", metavar="CC", dest="by_country", help="filter payloads by country code")
-    payloads.add_argument("--by-dst", metavar="PORT", dest="by_dst", type=int, help="filter payloads by destination port")
-
-    recent_payloads_p = sub.add_parser(
-        "recent-payloads",
+    # Top-level flags for viewing modes.  Exactly one viewing mode must be
+    # supplied.  These replace the previous sub-command syntax, so users can
+    # write ``tsunamiwall-logs --stats`` instead of ``tsunamiwall-logs stats``.
+    viewing = parser.add_argument_group("viewing modes")
+    viewing.add_argument(
+        "--recent",
+        "-r",
+        action="store_true",
+        help=f"show the last {DEFAULT_TAIL} honeypot hits (default mode)",
+    )
+    viewing.add_argument(
+        "--tail",
+        "-t",
+        action="store_true",
+        help="follow the live hit log (like tail -f)",
+    )
+    viewing.add_argument(
+        "--stats",
+        "-s",
+        action="store_true",
+        help="summary statistics: top IPs, countries and probed ports",
+    )
+    viewing.add_argument(
+        "--dropped",
+        "-d",
+        action="store_true",
+        help="show top destination ports recently dropped by TsunamiWall",
+    )
+    viewing.add_argument(
+        "--payloads",
+        "-p",
+        action="store_true",
+        help="list or show captured payloads",
+    )
+    viewing.add_argument(
+        "--recent-payloads",
+        "-P",
+        action="store_true",
         help=f"show the last {DEFAULT_TAIL} hits with a snippet of any captured payload",
     )
-    recent_payloads_p.add_argument(
-        "count", type=int, nargs="?", default=DEFAULT_TAIL, help="number of hits"
+
+    # Filters and counts.  Used by --recent, --recent-payloads and --payloads.
+    parser.add_argument(
+        "--ip",
+        "-i",
+        metavar="IP",
+        help="filter by source IPv4/IPv6 address",
     )
-    recent_payloads_p.add_argument(
-        "--bytes", type=int, metavar="N", default=160, help="max payload bytes to preview"
+    parser.add_argument(
+        "--country",
+        "-C",
+        metavar="CC",
+        help="filter by two-letter country code (e.g. US, CN)",
+    )
+    parser.add_argument(
+        "--src-port",
+        "-S",
+        metavar="PORT",
+        type=int,
+        help="filter by source port",
+    )
+    parser.add_argument(
+        "--dst-port",
+        "-D",
+        metavar="PORT",
+        type=int,
+        help="filter by destination port",
+    )
+    parser.add_argument(
+        "--last",
+        "-n",
+        metavar="N",
+        type=int,
+        help=f"show only the N most recent hits/payloads (default {DEFAULT_TAIL})",
+    )
+    parser.add_argument(
+        "--date",
+        metavar="YYYY-MM-DD",
+        help="filter to a single calendar day (e.g. 2026-10-20); applies to hits and payloads",
+    )
+    parser.add_argument(
+        "--bytes",
+        "-b",
+        metavar="N",
+        type=int,
+        default=160,
+        help="max payload bytes to preview (default: 160)",
     )
 
-    sub.add_parser("stats", help="summary statistics: top IPs, countries and probed ports")
-
-    dropped_p = sub.add_parser(
-        "dropped",
-        help="show top destination ports recently dropped by TsunamiWall (from dmesg/syslog)",
+    # Backward compatibility: accept old positional sub-commands and their
+    # arguments and translate them into the new flag/filter form.  This lets
+    # existing scripts and muscle memory keep working while the CLI moves to
+    # a pure argument style.
+    parser.add_argument(
+        "_compat",
+        nargs="*",
+        help=argparse.SUPPRESS,
     )
-    dropped_p.add_argument("count", type=int, nargs="?", default=20, help="number of ports to show")
 
     return parser
 
@@ -143,10 +206,41 @@ def _print_hits(hits: list[dict]) -> None:
         print(_format_hit(obj))
 
 
+def _hit_matches_date(hit: dict, date_str: str | None) -> bool:
+    """Return True if *hit* falls on the requested --date (YYYY-MM-DD)."""
+    if not date_str:
+        return True
+    hit_time = hit.get("time", "")
+    if not hit_time:
+        return False
+    # Hit timestamps are ISO-8601: "2026-10-20T12:34:56Z" or "2026-10-20T12:34:56".
+    return hit_time[:10] == date_str
+
+
+def _filter_hits(hits: Iterable[dict], args: argparse.Namespace) -> list[dict]:
+    """Apply --ip, --country, --src-port, --dst-port and --date filters."""
+    result = list(hits)
+    if args.ip:
+        result = [h for h in result if h.get("src_ip") == args.ip]
+    if args.country:
+        cc = args.country.upper()
+        result = [h for h in result if h.get("country_code", "").upper() == cc]
+    if args.src_port is not None:
+        result = [h for h in result if h.get("src_port") == args.src_port]
+    if args.dst_port is not None:
+        result = [h for h in result if h.get("dst_port") == args.dst_port]
+    date_filter = getattr(args, "date", None)
+    if date_filter:
+        result = [h for h in result if _hit_matches_date(h, date_filter)]
+    return result
+
+
 def cmd_recent(args: argparse.Namespace) -> int:
     _, log_dir = _load_config(args)
-    hits = _sort_hits(list(_iter_hits(log_dir)))[: args.count]
-    _print_hits(hits)
+    hits = _sort_hits(list(_iter_hits(log_dir)))
+    hits = _filter_hits(hits, args)
+    limit = args.last if args.last is not None else DEFAULT_TAIL
+    _print_hits(hits[:limit])
     return 0
 
 
@@ -168,6 +262,22 @@ def _current_inode(path: Path) -> int | None:
         return None
 
 
+def _tail_matches(args: argparse.Namespace, obj: dict) -> bool:
+    """Return True if a live hit matches the active filters."""
+    if args.ip and obj.get("src_ip") != args.ip:
+        return False
+    if args.country and obj.get("country_code", "").upper() != args.country.upper():
+        return False
+    if args.src_port is not None and obj.get("src_port") != args.src_port:
+        return False
+    if args.dst_port is not None and obj.get("dst_port") != args.dst_port:
+        return False
+    date_filter = getattr(args, "date", None)
+    if date_filter and not _hit_matches_date(obj, date_filter):
+        return False
+    return True
+
+
 def cmd_tail(args: argparse.Namespace) -> int:
     _, log_dir = _load_config(args)
     path = log_dir / "hits.logl"
@@ -184,7 +294,12 @@ def cmd_tail(args: argparse.Namespace) -> int:
         while True:
             line = fh.readline()
             if line:
-                _print_hit_line(line)
+                try:
+                    obj = json.loads(line.strip())
+                except json.JSONDecodeError:
+                    continue
+                if _tail_matches(args, obj):
+                    print(_format_hit(obj))
                 continue
 
             # No new data; check whether the file was rotated.
@@ -201,29 +316,23 @@ def cmd_tail(args: argparse.Namespace) -> int:
 
 
 def cmd_by_ip(args: argparse.Namespace) -> int:
-    _, log_dir = _load_config(args)
-    hits = _sort_hits([h for h in _iter_hits(log_dir) if h.get("src_ip") == args.ip])
-    _print_hits(hits)
-    return 0
+    return cmd_recent(args)
 
 
 def cmd_by_country(args: argparse.Namespace) -> int:
-    _, log_dir = _load_config(args)
-    cc = args.country.upper()
-    hits = _sort_hits([h for h in _iter_hits(log_dir) if h.get("country_code", "").upper() == cc])
-    _print_hits(hits)
-    return 0
+    return cmd_recent(args)
 
 
 def cmd_by_dst(args: argparse.Namespace) -> int:
-    _, log_dir = _load_config(args)
-    port = args.port
-    hits = _sort_hits([h for h in _iter_hits(log_dir) if h.get("dst_port") == port])
-    _print_hits(hits)
-    return 0
+    return cmd_recent(args)
 
 
-def _payload_files(log_dir: Path, ip_filter: str | None = None, country_filter: str | None = None) -> list[Path]:
+def _payload_files(
+    log_dir: Path,
+    ip_filter: str | None = None,
+    country_filter: str | None = None,
+    date_filter: str | None = None,
+) -> list[Path]:
     """Return payload files matching optional filters, newest first."""
     base = log_dir / "bycountry"
     if not base.exists():
@@ -243,6 +352,12 @@ def _payload_files(log_dir: Path, ip_filter: str | None = None, country_filter: 
     files: list[Path] = []
     for pattern in patterns:
         files.extend(base.glob(pattern))
+
+    if date_filter:
+        start_of_day = time.mktime(time.strptime(date_filter, "%Y-%m-%d"))
+        end_of_day = start_of_day + 86400
+        files = [p for p in files if start_of_day <= p.stat().st_mtime < end_of_day]
+
     # Sort by mtime descending.
     files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return files
@@ -286,55 +401,31 @@ def _snip(path: Path, max_bytes: int = 2048) -> str:
     return _text_snip(data, max_bytes)
 
 
-def _parse_payload_terms(args: argparse.Namespace) -> tuple[str | None, str | None, int | None, int | None]:
-    """Return (ip_filter, country_filter, dst_port_filter, last_count) from positional terms and options."""
-    ip_filter: str | None = getattr(args, "by_ip", None)
-    country_filter: str | None = args.country or getattr(args, "by_country", None)
-    dst_port_filter: int | None = getattr(args, "by_dst", None)
-    last_count: int | None = args.last
-
-    terms = list(getattr(args, "term", []) or [])
-    i = 0
-    while i < len(terms):
-        t = terms[i]
-        if t == "by-ip" and i + 1 < len(terms):
-            ip_filter = terms[i + 1]
-            i += 2
-        elif t == "by-country" and i + 1 < len(terms):
-            country_filter = terms[i + 1]
-            i += 2
-        elif t == "by-dst" and i + 1 < len(terms):
-            try:
-                dst_port_filter = int(terms[i + 1])
-            except ValueError:
-                pass
-            i += 2
-        elif t.isdigit():
-            last_count = int(t)
-            i += 1
-        elif ip_filter is None:
-            # First non-keyword term is treated as an IP filter for backward compat.
-            ip_filter = t
-            i += 1
-        else:
-            i += 1
-    return ip_filter, country_filter, dst_port_filter, last_count
-
-
 def cmd_payloads(args: argparse.Namespace) -> int:
     _, log_dir = _load_config(args)
-    ip_filter, country_filter, dst_port_filter, last_count = _parse_payload_terms(args)
-    files = _payload_files(log_dir, ip_filter=ip_filter, country_filter=country_filter)
+    ip_filter = args.ip
+    country_filter = args.country
+    files = _payload_files(
+        log_dir,
+        ip_filter=ip_filter,
+        country_filter=country_filter,
+        date_filter=args.date,
+    )
     if not files:
         print("No payloads found.")
         return 0
 
-    if dst_port_filter is not None:
-        suffix = f"_{dst_port_filter}_"
+    if args.dst_port is not None:
+        suffix = f"_{args.dst_port}_"
         files = [p for p in files if suffix in p.name]
 
-    if last_count:
-        files = files[:last_count]
+    if args.src_port is not None:
+        suffix = f"_{args.src_port}.bin"
+        files = [p for p in files if p.name.endswith(suffix)]
+
+    limit = args.last if args.last is not None else DEFAULT_TAIL
+    if limit:
+        files = files[:limit]
 
     print(f"{'COUNTRY':8} {'IP':20} {'TIME':20} {'FILE'}")
     print("-" * 100)
@@ -356,6 +447,7 @@ def cmd_payloads(args: argparse.Namespace) -> int:
 def cmd_stats(args: argparse.Namespace) -> int:
     _, log_dir = _load_config(args)
     hits = list(_iter_hits(log_dir))
+    hits = _filter_hits(hits, args)
     if not hits:
         print("No hits to summarize.")
         return 0
@@ -430,7 +522,10 @@ def _hit_timestamp(hit_time: str) -> float:
 
 def cmd_recent_payloads(args: argparse.Namespace) -> int:
     _, log_dir = _load_config(args)
-    hits = _sort_hits(list(_iter_hits(log_dir)))[: args.count]
+    hits = _sort_hits(list(_iter_hits(log_dir)))
+    hits = _filter_hits(hits, args)
+    limit = args.last if args.last is not None else DEFAULT_TAIL
+    hits = hits[:limit]
     if not hits:
         print("No hits.")
         return 0
@@ -514,16 +609,100 @@ def cmd_dropped(args: argparse.Namespace) -> int:
         print("(Drops are logged by iptables as TSUNAMIWALL-DROP: ... DPT=<port>)")
         return 0
 
+    limit = args.last if args.last is not None else 20
     print(f"{'DST PORT':>10} {'DROPS':>8}")
     print("-" * 20)
-    for port, count in ports.most_common(args.count):
+    for port, count in ports.most_common(limit):
         print(f"{port:>10} {count:>8}")
     return 0
 
 
+# Backward-compatible mapping from old positional sub-command syntax to the
+# new argument-based form.
+_COMPAT_MODES = {
+    "recent": ("recent",),
+    "tail": ("tail",),
+    "stats": ("stats",),
+    "dropped": ("dropped",),
+    "payloads": ("payloads",),
+    "recent-payloads": ("recent-payloads",),
+    "by-ip": ("recent", "ip"),
+    "by-country": ("recent", "country"),
+    "by-dst": ("recent", "dst_port"),
+}
+
+
+def _translate_old_syntax(argv: list[str]) -> list[str]:
+    """Convert legacy ``tsunamiwall-logs SUBCMD [args...]`` into new flags.
+
+    Examples:
+        tsunamiwall-logs recent           -> --recent
+        tsunamiwall-logs recent 20        -> --recent --last 20
+        tsunamiwall-logs tail             -> --tail
+        tsunamiwall-logs by-ip 1.2.3.4    -> --recent --ip 1.2.3.4
+        tsunamiwall-logs by-dst 10005     -> --recent --dst-port 10005
+        tsunamiwall-logs payloads 1.2.3.4 -> --payloads --ip 1.2.3.4
+        tsunamiwall-logs payloads 10 by-ip 1.2.3.4 -> --payloads --last 10 --ip 1.2.3.4
+        tsunamiwall-logs dropped 30       -> --dropped --last 30
+    """
+    if not argv:
+        return argv
+
+    head = argv[0]
+    if head.startswith("-"):
+        return argv
+
+    mapping = _COMPAT_MODES.get(head)
+    if not mapping:
+        # Unknown command; let argparse report the error.
+        return argv
+
+    mode, *value_key = mapping
+    translated = [f"--{mode}"]
+    rest = argv[1:]
+
+    # If the old sub-command takes a positional value (by-ip, by-country,
+    # by-dst), translate that first positional argument into the matching
+    # new filter flag.
+    if value_key:
+        key = value_key[0]
+        if rest:
+            translated.append(f"--{key.replace('_', '-')}")
+            translated.append(rest.pop(0))
+
+    i = 0
+    while i < len(rest):
+        token = rest[i]
+        if token == "by-ip" and i + 1 < len(rest):
+            translated.extend(["--ip", rest[i + 1]])
+            i += 2
+        elif token == "by-country" and i + 1 < len(rest):
+            translated.extend(["--country", rest[i + 1]])
+            i += 2
+        elif token == "by-dst" and i + 1 < len(rest):
+            translated.extend(["--dst-port", rest[i + 1]])
+            i += 2
+        elif token.isdigit():
+            translated.extend(["--last", token])
+            i += 1
+        else:
+            # For payloads, a bare first positional was treated as an IP.
+            if mode == "payloads" and not token.startswith("-"):
+                translated.extend(["--ip", token])
+            i += 1
+
+    return translated
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
-    args = parser.parse_args(argv)
+    raw_argv = list(argv) if argv is not None else sys.argv[1:]
+    raw_argv = _translate_old_syntax(raw_argv)
+    args = parser.parse_args(raw_argv)
+
+    # If no viewing mode was selected, default to --recent.
+    if not any((args.recent, args.tail, args.stats, args.dropped, args.payloads, args.recent_payloads)):
+        args.recent = True
 
     dispatch = {
         "recent": cmd_recent,
@@ -536,8 +715,27 @@ def main(argv: list[str] | None = None) -> int:
         "stats": cmd_stats,
         "dropped": cmd_dropped,
     }
+
+    # Map the selected flag to the same dispatch keys used for backward compat.
+    mode: str | None = None
+    if args.recent:
+        mode = "recent"
+    elif args.tail:
+        mode = "tail"
+    elif args.stats:
+        mode = "stats"
+    elif args.dropped:
+        mode = "dropped"
+    elif args.payloads:
+        mode = "payloads"
+    elif args.recent_payloads:
+        mode = "recent-payloads"
+
+    # Filters are applied inside the viewing commands, so mode selection is
+    # enough here.  The old by-ip/by-country/by-dst sub-commands also map to
+    # "recent" but set their filter before delegating.
     try:
-        return dispatch[args.command](args)
+        return dispatch[mode](args)
     except PermissionError as exc:
         print(f"{exc}", file=sys.stderr)
         return 1

@@ -5,8 +5,17 @@ All notable changes to TsunamiWall are documented in this file.
 ## [Unreleased] - current
 
 ### Added
-- **Log viewer payload filters** — `scripts/tsunamiwall-logs payloads` now accepts `by-ip <IP>`, `by-country <CC>` and `by-dst <PORT>` filter terms, plus a bare count for `--last`, so commands like `payloads 3 by-ip 1.2.3.4 by-dst 22` work intuitively.
-- **Log viewer sudo wrapper** — `scripts/tsunamiwall-logs` now re-executes itself with `sudo` when the configured `log_dir` is not readable by the current user, so you do not need to prefix `sudo` manually. If `sudo` is unavailable, it falls back to running normally and reports the permission error.
+
+### Fixed
+
+## [1.3.0] - 2026-10-23
+
+### Added
+- **Version flag for log viewer** — `scripts/tsunamiwall-logs --version` / `-v` now prints the package version.
+- **Date filter for log viewer** — `scripts/tsunamiwall-logs` now supports `--date YYYY-MM-DD` to restrict `--stats`, `--recent`, `--recent-payloads`, `--tail` and `--payloads` to a single calendar day.
+
+### Changed
+- **Argument-based log viewer CLI** — `scripts/tsunamiwall-logs` now uses flags instead of sub-commands: `--recent`/`-r`, `--tail`/`-t`, `--stats`/`-s`, `--dropped`/`-d`, `--payloads`/`-p`, `--recent-payloads`/`-P`. Shared filters `--ip`/`-i`, `--country`/`-C`, `--src-port`/`-S`, `--dst-port`/`-D`, `--date`, `--last`/`-n` and `--bytes`/`-b` work across all viewing modes. The previous sub-command syntax (e.g. `tsunamiwall-logs recent 20`, `tsunamiwall-logs by-ip 1.2.3.4`) is automatically translated for backward compatibility.
 
 ### Fixed
 - **Log viewer ordering** — `recent`, `by-ip`, `by-country`, `by-dst` and `recent-payloads` now display hits newest-first (descending) instead of file-order.

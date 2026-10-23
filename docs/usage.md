@@ -217,8 +217,8 @@ sudo ip6tables -L TSUNAMIWALL6 -n
 
 To see which destination ports are being actively dropped/probed recently:
 ```bash
-scripts/tsunamiwall-logs dropped
-scripts/tsunamiwall-logs dropped 30   # top 30
+scripts/tsunamiwall-logs --dropped
+scripts/tsunamiwall-logs --dropped -n 30   # top 30
 sudo dmesg | scripts/extract-attack-ports.sh --dst-port
 ```
 Note: `dmesg`/`journald` will only contain rate-limited LOG entries from iptables. Use `scripts/tsunamiwall-logs` for the full hit log.
@@ -228,20 +228,28 @@ Note: `dmesg`/`journald` will only contain rate-limited LOG entries from iptable
 The `scripts/tsunamiwall-logs` helper reads the JSONL hit log and the per-country payload tree without needing the daemon socket. It automatically re-executes with `sudo` when the configured `log_dir` is not readable by the current user, so in most cases you can run it without prefixing `sudo`:
 
 ```bash
-scripts/tsunamiwall-logs recent             # last 50 hits (newest first)
-scripts/tsunamiwall-logs recent 20          # last 20 hits
-scripts/tsunamiwall-logs tail               # follow the hit log live (reopens on rotation)
-scripts/tsunamiwall-logs by-ip 1.2.3.4
-scripts/tsunamiwall-logs by-country US
-scripts/tsunamiwall-logs by-dst 10005
-scripts/tsunamiwall-logs payloads 1.2.3.4              # payloads for an IP
-scripts/tsunamiwall-logs payloads 10 by-ip 1.2.3.4       # 10 most recent payloads for an IP
-scripts/tsunamiwall-logs payloads 5 by-country US        # 5 most recent payloads from a country
-scripts/tsunamiwall-logs payloads 3 by-dst 22           # 3 most recent payloads on destination port 22
-scripts/tsunamiwall-logs stats               # top IPs, countries and ports
-scripts/tsunamiwall-logs dropped             # top dropped destination ports
-scripts/tsunamiwall-logs recent-payloads     # recent hits with payload previews
-scripts/tsunamiwall-logs recent-payloads 10 --bytes 200
+scripts/tsunamiwall-logs --recent              # last 50 hits (newest first)
+scripts/tsunamiwall-logs --recent -n 20          # last 20 hits
+scripts/tsunamiwall-logs --tail                  # follow the hit log live (reopens on rotation)
+scripts/tsunamiwall-logs --ip 1.2.3.4
+scripts/tsunamiwall-logs --country US
+scripts/tsunamiwall-logs --dst-port 10005
+scripts/tsunamiwall-logs --date 2026-10-20 --stats           # stats for a single day
+scripts/tsunamiwall-logs --date 2026-10-20 --ip 1.2.3.4       # hits from one IP on a single day
+scripts/tsunamiwall-logs --payloads --ip 1.2.3.4              # payloads for an IP
+scripts/tsunamiwall-logs --payloads -n 10 --ip 1.2.3.4        # 10 most recent payloads for an IP
+scripts/tsunamiwall-logs --payloads -n 5 --country US           # 5 most recent payloads from a country
+scripts/tsunamiwall-logs --payloads -n 3 --dst-port 22         # 3 most recent payloads on destination port 22
+scripts/tsunamiwall-logs --payloads --date 2026-10-20 --ip 1.2.3.4  # payloads from a specific day
+scripts/tsunamiwall-logs --stats                 # top IPs, countries and ports
+scripts/tsunamiwall-logs --dropped               # top dropped destination ports
+scripts/tsunamiwall-logs --recent-payloads      # recent hits with payload previews
+scripts/tsunamiwall-logs --recent-payloads -n 10 --bytes 200
+
+Filters (`--ip`, `--country`, `--src-port`, `--dst-port`, `--date`) can be
+combined and work across `--recent`, `--stats`, `--recent-payloads`, `--tail`
+and `--payloads`.  The previous sub-command syntax (`recent`, `by-ip`,
+`payloads ...`) is still accepted and translated automatically.
 ```
 
 If you prefer not to elevate, set a user-owned `log_dir` in your config.
