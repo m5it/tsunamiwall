@@ -51,6 +51,12 @@ class Config:
     hit_log_max_bytes: int = 100 * 1024 * 1024  # 100 MiB
     # Number of rotated hit log files to retain.
     hit_log_max_backups: int = 5
+    # Maximum number of unpacked hit log entries before the daemon archives
+    # the log into a dated .tar.gz file and starts a fresh hits.logl. Keeping
+    # the unpacked log small keeps --stats and --recent fast.
+    hit_log_archive_max_hits: int = 100_000
+    # Directory for archived hit logs (tar.gz). Defaults to a subdirectory of log_dir.
+    hit_log_archive_dir: str = ""
     # Maximum total bytes to keep in the payload log directory.
     payload_log_max_bytes: int = 1024 * 1024 * 1024  # 1 GiB
     # iptables LOG rate limit: average packets per second before bursting.
@@ -81,18 +87,12 @@ class Config:
             raise ValueError("honeypot_start must be <= honeypot_end")
         if not os.path.isabs(self.log_dir):
             raise ValueError("log_dir must be an absolute path")
-        if not os.path.isabs(self.run_dir):
-            raise ValueError("run_dir must be an absolute path")
-        if not os.path.isabs(self.payload_log_dir):
-            raise ValueError("payload_log_dir must be an absolute path")
-        if self.payload_max_bytes <= 0:
-            raise ValueError("payload_max_bytes must be positive")
-        if self.payload_read_timeout <= 0:
-            raise ValueError("payload_read_timeout must be positive")
         if self.hit_log_max_bytes < 0:
             raise ValueError("hit_log_max_bytes must be non-negative")
         if self.hit_log_max_backups < 0:
             raise ValueError("hit_log_max_backups must be non-negative")
+        if self.hit_log_archive_max_hits < 0:
+            raise ValueError("hit_log_archive_max_hits must be non-negative")
         if self.payload_log_max_bytes < 0:
             raise ValueError("payload_log_max_bytes must be non-negative")
         if self.log_rate_limit < 0:
@@ -116,6 +116,14 @@ class Config:
     @property
     def hit_log_path(self) -> str:
         return os.path.join(self.log_dir, self.hit_log_name)
+
+    @property
+    def hit_log_archive_path(self) -> str:
+        return self.hit_log_archive_dir or os.path.join(self.log_dir, "archives")
+
+    @property
+    def hit_log_stats_path(self) -> str:
+        return os.path.join(self.log_dir, "hits-stats.json")
 
     @property
     def state_path(self) -> str:

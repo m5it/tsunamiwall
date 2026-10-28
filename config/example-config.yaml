@@ -56,6 +56,14 @@ hit_log_name: "hits.logl"
 # Log/payload rotation and rate limiting.
 hit_log_max_bytes: 104857600      # 100 MiB per hits.logl before rotation
 hit_log_max_backups: 5            # keep hits.logl.1 through .5
+
+# Hit log archival: when hits.logl exceeds this many entries, the daemon
+# merges aggregate statistics into hits-stats.json, compresses the log into
+# a dated .tar.gz under log_dir/archives/, and starts a fresh hits.logl. This
+# keeps --stats and --recent fast after hundreds of thousands of hits.
+hit_log_archive_max_hits: 100000
+# hit_log_archive_dir: "/var/log/tsunamiwall/archives"  # default: <log_dir>/archives
+
 payload_log_max_bytes: 1073741824 # 1 GiB total payload storage cap
 log_rate_limit: 10                # average LOG packets/second
 log_rate_burst: 20               # LOG burst before rate limiting kicks in

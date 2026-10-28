@@ -161,6 +161,8 @@ To control disk growth under heavy scans, tune these config keys:
 ```yaml
 hit_log_max_bytes: 104857600      # rotate hits.logl after 100 MiB
 hit_log_max_backups: 5            # keep up to 5 rotated files
+hit_log_archive_max_hits: 100000  # archive hits.logl to .tar.gz after 100k entries
+# hit_log_archive_dir: /var/log/tsunamiwall/archives  # default: <log_dir>/archives
 payload_log_max_bytes: 1073741824 # cap total payload storage at 1 GiB
 log_rate_limit: 10                # iptables LOG packets/second
 log_rate_burst: 20               # initial LOG burst
@@ -235,6 +237,8 @@ scripts/tsunamiwall-logs --ip 1.2.3.4
 scripts/tsunamiwall-logs --country US
 scripts/tsunamiwall-logs --dst-port 10005
 scripts/tsunamiwall-logs --date 2026-10-20 --stats           # stats for a single day
+scripts/tsunamiwall-logs --stats --all-time                  # scan all archives for complete all-time stats
+scripts/tsunamiwall-logs --archive                           # manually archive the current log now
 scripts/tsunamiwall-logs --date 2026-10-20 --ip 1.2.3.4       # hits from one IP on a single day
 scripts/tsunamiwall-logs --payloads --ip 1.2.3.4              # payloads for an IP
 scripts/tsunamiwall-logs --payloads -n 10 --ip 1.2.3.4        # 10 most recent payloads for an IP

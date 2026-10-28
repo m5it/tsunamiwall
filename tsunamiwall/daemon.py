@@ -21,7 +21,11 @@ from .honeypot import (
     default_payload_writer,
     jsonl_formatter,
 )
-from .rotation import cleanup_payloads, rotate_hit_log
+from .rotation import (
+    archive_hit_log,
+    cleanup_payloads,
+    rotate_hit_log,
+)
 
 logger = logging.getLogger("tsunamiwall.daemon")
 
@@ -60,12 +64,22 @@ class Daemon:
 
     def _open_hit_log(self):
         os.makedirs(self.cfg.log_dir, exist_ok=True, mode=0o750)
-        rotate_hit_log(
+        # Prefer archival rotation on startup: if the log is over the hit count
+        # threshold we archive it first, otherwise fall back to byte-based rotation.
+        archived = archive_hit_log(
             self.cfg.hit_log_path,
-            self.cfg.hit_log_max_bytes,
-            self.cfg.hit_log_max_backups,
+            self.cfg.hit_log_archive_path,
+            self.cfg.hit_log_stats_path,
+            self.cfg.hit_log_archive_max_hits,
         )
+        if archived is None:
+            rotate_hit_log(
+                self.cfg.hit_log_path,
+                self.cfg.hit_log_max_bytes,
+                self.cfg.hit_log_max_backups,
+            )
         return open(self.cfg.hit_log_path, "a", encoding="utf-8", buffering=1)
+
 
     def _log_hit(self, event: HitEvent) -> None:
         line = jsonl_formatter(event)
@@ -266,19 +280,30 @@ class Daemon:
             except Exception:
                 logger.exception("Discovery/reconcile failed")
 
-            # Periodically rotate the hit log and enforce payload retention.
+            # Periodically rotate/archive the hit log and enforce payload retention.
             iterations += 1
             if iterations % 10 == 0:
                 try:
                     self._hit_log_fh.flush()
-                    rotated = rotate_hit_log(
+                    archived = await asyncio.to_thread(
+                        archive_hit_log,
                         self.cfg.hit_log_path,
-                        self.cfg.hit_log_max_bytes,
-                        self.cfg.hit_log_max_backups,
+                        self.cfg.hit_log_archive_path,
+                        self.cfg.hit_log_stats_path,
+                        self.cfg.hit_log_archive_max_hits,
                     )
-                    if rotated is not None:
+                    if archived is not None:
                         self._hit_log_fh.close()
                         self._hit_log_fh = self._open_hit_log()
+                    else:
+                        rotated = rotate_hit_log(
+                            self.cfg.hit_log_path,
+                            self.cfg.hit_log_max_bytes,
+                            self.cfg.hit_log_max_backups,
+                        )
+                        if rotated is not None:
+                            self._hit_log_fh.close()
+                            self._hit_log_fh = self._open_hit_log()
                     # Run the potentially expensive payload scan off the event loop.
                     try:
                         await asyncio.to_thread(
@@ -289,7 +314,7 @@ class Daemon:
                     except Exception:
                         logger.exception("Payload retention cleanup failed")
                 except Exception:
-                    logger.exception("Log rotation failed")
+                    logger.exception("Log rotation/archiving failed")
 
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=self.cfg.discovery_interval)

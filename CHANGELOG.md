@@ -8,6 +8,16 @@ All notable changes to TsunamiWall are documented in this file.
 
 ### Fixed
 
+## [1.3.2] - 2026-10-29
+
+### Added
+- **Hit log archival into .tar.gz** — when `hits.logl` exceeds the new `hit_log_archive_max_hits` threshold (default 100 000 entries), the daemon merges the log's aggregate statistics into a persistent `hits-stats.json` file, compresses the log into a dated `.tar.gz` under `log_dir/archives/`, and starts a fresh `hits.logl`. This keeps `--stats` and `--recent` fast even after hundreds of thousands of hits.
+- **`hit_log_archive_max_hits` config option** — controls how many unpacked hit records are kept before automatic archival.
+- **`hit_log_archive_dir` config option** — optionally overrides the archive directory; defaults to `<log_dir>/archives/`.
+- **`tsunamiwall-logs --archive`** — manually triggers the same archive+stats-merge operation that the daemon performs automatically.
+- **`tsunamiwall-logs --stats` merges archived statistics** — by default, statistics now combine the persistent `hits-stats.json` (all-time archived totals) with the current unpacked `hits.logl`, so you see totals from the beginning, not just the latest window.
+- **`tsunamiwall-logs --stats --all-time`** — also scans every archived `.tar.gz` to produce complete all-time statistics. This is slower but fully accurate.
+
 ## [1.3.1] - 2026-10-23
 
 ### Fixed
@@ -65,7 +75,7 @@ All notable changes to TsunamiWall are documented in this file.
 - **Rate-limited firewall logging** — all iptables `LOG` rules use `-m limit` with configurable `log_rate_limit` / `log_rate_burst` to prevent `dmesg`/journal flooding under heavy scans.
 - New module `tsunamiwall/rotation.py` and tests `tests/test_rotation.py`, `tests/test_rate_limited_logging.py`.
 - **IPv6 support** — new `enable_ipv6: true` config option. When enabled, TsunamiWall also manages an `ip6tables` chain with the same policy as IPv4, and honeypots bind to all addresses. By default only IPv4 is protected and IPv6 traffic is left untouched; this is now explicitly documented.
-- **CLI `allow --ip`** — per-source-IP allow rules via `tsunamiwall allow \u003cport\u003e --ip \u003cIP/CIDR\u003e` and matching `deny --ip` removal.
+- **CLI `allow --ip`** — per-source-IP allow rules via `tsunamiwall allow <port> --ip <IP/CIDR>` and matching `deny --ip` removal.
 - **CLI response robustness** — `cmd_status` now catches socket errors and prints a clear message when the daemon is unreachable.
 - **Per-IP allow persistence** — per-source-IP allow rules are included in `daemon-state.json` and restored on startup.
 

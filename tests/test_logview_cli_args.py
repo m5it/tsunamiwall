@@ -124,3 +124,14 @@ def test_version_short_flag_prints_version():
         main(["-v"])
     assert exc_info.value.code == 0
 
+
+def test_new_archive_flag():
+    args = _parse(["--archive"])
+    assert args.archive is True
+
+
+def test_new_all_time_flag():
+    args = _parse(["--stats", "--all-time"])
+    assert args.stats is True
+    assert args.all_time is True
+

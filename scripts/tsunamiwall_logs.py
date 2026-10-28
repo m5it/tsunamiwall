@@ -28,6 +28,13 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from tsunamiwall.config import load_config
 from tsunamiwall.util import _format_hit_time
+from tsunamiwall.rotation import (
+    _aggregate_hits,
+    _load_hits_stats,
+    _merge_stats,
+    _read_hits,
+    archive_hit_log,
+)
 
 DEFAULT_TAIL = 50
 
@@ -85,6 +92,12 @@ def _parser() -> argparse.ArgumentParser:
         help="list or show captured payloads",
     )
     viewing.add_argument(
+        "--archive",
+        "-a",
+        action="store_true",
+        help="manually archive the current hit log into a .tar.gz and update stats",
+    )
+    viewing.add_argument(
         "--recent-payloads",
         "-P",
         action="store_true",
@@ -138,6 +151,12 @@ def _parser() -> argparse.ArgumentParser:
         default=160,
         help="max payload bytes to preview (default: 160)",
     )
+    parser.add_argument(
+        "--all-time",
+        action="store_true",
+        dest="all_time",
+        help="include archived logs when computing statistics (slower, no limit)",
+    )
 
     # Backward compatibility: accept old positional sub-commands and their
     # arguments and translate them into the new flag/filter form.  This lets
@@ -160,23 +179,7 @@ def _load_config(args: argparse.Namespace) -> tuple:
 
 def _iter_hits(log_dir: Path) -> Iterator[dict]:
     """Yield JSON hit records from the hit log, oldest first."""
-    path = log_dir / "hits.logl"
-    try:
-        if not path.exists():
-            return
-    except PermissionError as exc:
-        raise PermissionError(
-            f"Cannot read {path}: permission denied (try sudo)."
-        ) from exc
-    with open(path, "r", encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                yield json.loads(line)
-            except json.JSONDecodeError:
-                continue
+    yield from _read_hits(log_dir / "hits.logl")
 
 
 def _format_hit(obj: dict) -> str:
@@ -448,15 +451,51 @@ def cmd_stats(args: argparse.Namespace) -> int:
     _, log_dir = _load_config(args)
     hits = list(_iter_hits(log_dir))
     hits = _filter_hits(hits, args)
-    if not hits:
+
+    archived_stats = _load_hits_stats(log_dir / "hits-stats.json")
+    recent_stats = _aggregate_hits(hits)
+    if getattr(args, "all_time", False):
+        # Also scan every .tar.gz archive and merge its hits.  This is slow
+        # but lets the user get truly complete all-time statistics.
+        archive_dir = log_dir / "archives"
+        if archive_dir.exists():
+            for archive_path in sorted(archive_dir.glob("hits-*.tar.gz")):
+                import tarfile
+                with tarfile.open(archive_path, "r:gz") as tar:
+                    for member in tar.getmembers():
+                        if member.isfile():
+                            fh = tar.extractfile(member)
+                            if fh is None:
+                                continue
+                            for line in fh:
+                                line = line.decode("utf-8", errors="ignore").strip()
+                                if not line:
+                                    continue
+                                try:
+                                    h = json.loads(line)
+                                except json.JSONDecodeError:
+                                    continue
+                                if _filter_hits([h], args):
+                                    hits.append(h)
+            recent_stats = _aggregate_hits(hits)
+        merged = _merge_stats(archived_stats, recent_stats)
+    else:
+        # Default: merge the persistent archived stats with the current log.
+        merged = _merge_stats(archived_stats, recent_stats)
+
+    if merged["total"] == 0:
         print("No hits to summarize.")
         return 0
 
-    ips = Counter(h.get("src_ip", "?") for h in hits)
-    countries = Counter(h.get("country_code", "?") for h in hits)
-    dports = Counter(h.get("dst_port", 0) for h in hits)
+    ips = Counter(merged["ips"])
+    countries = Counter(merged["countries"])
+    dports = Counter({int(k): v for k, v in merged["dports"].items()})
 
-    print(f"Total hits: {len(hits)}")
+    print(f"Total hits: {merged['total']}")
+    if getattr(args, "all_time", False):
+        print("(Includes all archived logs; this may be slower.)")
+    elif archived_stats["total"]:
+        print(f"({archived_stats['total']} from archives + {recent_stats['total']} current)")
     print()
     print("Top source IPs:")
     for ip, count in ips.most_common(10):
@@ -701,8 +740,22 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(raw_argv)
 
     # If no viewing mode was selected, default to --recent.
-    if not any((args.recent, args.tail, args.stats, args.dropped, args.payloads, args.recent_payloads)):
+    if not any((args.recent, args.tail, args.stats, args.dropped, args.payloads, args.recent_payloads, args.archive)):
         args.recent = True
+
+    if args.archive:
+        cfg, _log_dir = _load_config(args)
+        archived = archive_hit_log(
+            cfg.hit_log_path,
+            cfg.hit_log_archive_path,
+            cfg.hit_log_stats_path,
+            cfg.hit_log_archive_max_hits,
+        )
+        if archived is None:
+            print("No archive needed: current log is below the configured threshold.")
+            return 0
+        print(f"Archived hit log to {archived}")
+        return 0
 
     dispatch = {
         "recent": cmd_recent,
@@ -731,7 +784,6 @@ def main(argv: list[str] | None = None) -> int:
     elif args.recent_payloads:
         mode = "recent-payloads"
 
-    # Filters are applied inside the viewing commands, so mode selection is
     # enough here.  The old by-ip/by-country/by-dst sub-commands also map to
     # "recent" but set their filter before delegating.
     try:

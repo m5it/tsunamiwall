@@ -77,7 +77,7 @@ TsunamiWall reads YAML configuration from (in order):
 3. `/etc/tsunamiwall/config.yaml`
 4. `~/.config/tsunamiwall/config.yaml`
 
-Key options include `trusted_ips`, `auto_block_listeners`, `honeypot_start`/`honeypot_end`, `max_honeypots`, payload capture settings, log rotation settings, `enable_ipv6` for dual-stack hosts, and `firewall_backend` (`iptables`, `ip6tables`, `pfctl`, or `noop`) for cross-platform support.
+Key options include `trusted_ips`, `auto_block_listeners`, `honeypot_start`/`honeypot_end`, `max_honeypots`, payload capture settings, log rotation and archival settings (`hit_log_archive_max_hits`, `hit_log_archive_dir`), `enable_ipv6` for dual-stack hosts, and `firewall_backend` (`iptables`, `ip6tables`, `pfctl`, or `noop`) for cross-platform support.
 
 > **Note on `auto_block_listeners`:** the default is `false`, which means TsunamiWall automatically allows every listening socket it discovers. This is convenient for setup but not a strict default-deny policy. Set it to `true` after adding your management IP to `trusted_ips` for a real default-deny posture.
 
@@ -102,7 +102,7 @@ Key options include `trusted_ips`, `auto_block_listeners`, `honeypot_start`/`hon
 - **Firewall backend**: pluggable `iptables` (IPv4, with optional IPv6 via `enable_ipv6`), `ip6tables` (IPv6-only), or `pfctl` anchors on macOS, configured with `firewall_backend`. Default is `auto`.
 - **CLI/TUI**: Unix-socket client talking to the daemon.
 - **Payload logging**: captured data is written to `/var/log/tsunamiwall/bycountry/{CC}/{IP}/`.
-- **Log viewer script**: `scripts/tsunamiwall-logs` makes it easy to inspect hits and payloads.
+- **Log viewer script**: `scripts/tsunamiwall-logs` makes it easy to inspect hits and payloads. It can also archive large hit logs into `.tar.gz` and merge aggregate statistics so `--stats` stays fast after hundreds of thousands of hits.
 
 ## Log viewer
 
@@ -117,6 +117,8 @@ scripts/tsunamiwall-logs --ip 1.2.3.4
 scripts/tsunamiwall-logs --country US
 scripts/tsunamiwall-logs --dst-port 10005
 scripts/tsunamiwall-logs --date 2026-10-20 --stats            # stats for a single day
+scripts/tsunamiwall-logs --stats --all-time                   # scan all archives for complete stats
+scripts/tsunamiwall-logs --archive                            # manually archive the current log now
 scripts/tsunamiwall-logs --payloads --ip 1.2.3.4              # show captured payloads for an IP
 scripts/tsunamiwall-logs --payloads -n 10 --ip 1.2.3.4        # 10 most recent payloads for an IP
 scripts/tsunamiwall-logs --payloads -n 5 --country US          # 5 most recent payloads from a country
@@ -131,6 +133,28 @@ scripts/tsunamiwall-logs --recent-payloads -n 10 --bytes 200
 # scripts/tsunamiwall-logs recent 20
 # scripts/tsunamiwall-logs by-ip 1.2.3.4
 ```
+
+### Hit log archival
+
+On busy honeypots the `hits.logl` file can grow to hundreds of thousands of
+lines, making `tsunamiwall-logs --stats` slow. Enable automatic archival by
+tuning these config keys:
+
+```yaml
+hit_log_archive_max_hits: 100000  # archive hits.logl after this many entries
+# hit_log_archive_dir: /var/log/tsunamiwall/archives  # default: <log_dir>/archives
+```
+
+When the threshold is reached, the daemon:
+
+1. Merges aggregate statistics into `<log_dir>/hits-stats.json` (all-time totals).
+2. Compresses the current log into a dated `.tar.gz` under `<log_dir>/archives/`.
+3. Starts a fresh `hits.logl`.
+
+`tsunamiwall-logs --stats` then combines `hits-stats.json` with the current log,
+so you see all-time totals without parsing every archived line. Use
+`--stats --all-time` to scan every `.tar.gz` for fully accurate totals, or
+`--archive` to trigger the archival manually.
 
 > The daemon writes logs under `/var/log/tsunamiwall` as root. The `scripts/tsunamiwall-logs` wrapper automatically re-executes with `sudo` when the log directory is not readable by your user, so you can usually run it without prefixing `sudo` yourself. If you prefer not to elevate, set a user-owned `log_dir` in your config.
 
