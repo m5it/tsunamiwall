@@ -156,6 +156,17 @@ so you see all-time totals without parsing every archived line. Use
 `--stats --all-time` to scan every `.tar.gz` for fully accurate totals, or
 `--archive` to trigger the archival manually.
 
+You can also open an individual archive and search through it as if it were the
+live log:
+
+```bash
+scripts/tsunamiwall-logs --list-archives              # list all .tar.gz packages
+scripts/tsunamiwall-logs --open-archive 2026-10-28    # switch to that archive
+scripts/tsunamiwall-logs --recent --ip 1.2.3.4        # search that archive
+scripts/tsunamiwall-logs --stats                      # stats for that archive only
+scripts/tsunamiwall-logs --close-archive              # return to live hits.logl
+```
+
 > The daemon writes logs under `/var/log/tsunamiwall` as root. The `scripts/tsunamiwall-logs` wrapper automatically re-executes with `sudo` when the log directory is not readable by your user, so you can usually run it without prefixing `sudo` yourself. If you prefer not to elevate, set a user-owned `log_dir` in your config.
 
 ## Documentation

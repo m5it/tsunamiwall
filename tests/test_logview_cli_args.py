@@ -135,3 +135,23 @@ def test_new_all_time_flag():
     assert args.stats is True
     assert args.all_time is True
 
+
+def test_new_list_archives_flag():
+    args = _parse(["--list-archives"])
+    assert args.list_archives is True
+
+
+def test_new_list_archives_short_flag():
+    args = _parse(["-L"])
+    assert args.list_archives is True
+
+
+def test_new_open_archive_flag():
+    args = _parse(["--open-archive", "2026-10-28"])
+    assert args.open_archive == "2026-10-28"
+
+
+def test_new_close_archive_flag():
+    args = _parse(["--close-archive"])
+    assert args.close_archive is True
+

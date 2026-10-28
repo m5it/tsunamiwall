@@ -250,6 +250,13 @@ scripts/tsunamiwall-logs --dropped               # top dropped destination ports
 scripts/tsunamiwall-logs --recent-payloads      # recent hits with payload previews
 scripts/tsunamiwall-logs --recent-payloads -n 10 --bytes 200
 
+# Open an archived package and search through it like the live log.
+scripts/tsunamiwall-logs --list-archives
+scripts/tsunamiwall-logs --open-archive 2026-10-28
+scripts/tsunamiwall-logs --recent --ip 1.2.3.4
+scripts/tsunamiwall-logs --stats
+scripts/tsunamiwall-logs --close-archive
+
 Filters (`--ip`, `--country`, `--src-port`, `--dst-port`, `--date`) can be
 combined and work across `--recent`, `--stats`, `--recent-payloads`, `--tail`
 and `--payloads`.  The previous sub-command syntax (`recent`, `by-ip`,

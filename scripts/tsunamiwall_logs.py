@@ -16,6 +16,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import time
 from collections import Counter
 from pathlib import Path
@@ -103,6 +104,23 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help=f"show the last {DEFAULT_TAIL} hits with a snippet of any captured payload",
     )
+    viewing.add_argument(
+        "--list-archives",
+        "-L",
+        action="store_true",
+        help="list archived hit-log packages",
+    )
+    viewing.add_argument(
+        "--open-archive",
+        "-O",
+        metavar="NAME",
+        help="open an archived package by filename or date prefix; future commands read from it",
+    )
+    viewing.add_argument(
+        "--close-archive",
+        action="store_true",
+        help="close the opened archive and return to the live hit log",
+    )
 
     # Filters and counts.  Used by --recent, --recent-payloads and --payloads.
     parser.add_argument(
@@ -177,9 +195,144 @@ def _load_config(args: argparse.Namespace) -> tuple:
     return cfg, Path(cfg.log_dir)
 
 
+def _active_archive_marker(log_dir: Path) -> Path:
+    return log_dir / ".tsunamiwall-active-archive"
+
+
+def _get_active_archive(log_dir: Path) -> Path | None:
+    """Return the currently opened archive, if any."""
+    marker = _active_archive_marker(log_dir)
+    if not marker.exists():
+        return None
+    try:
+        path = Path(marker.read_text(encoding="utf-8").strip())
+        if path.exists():
+            return path
+    except Exception:
+        pass
+    return None
+
+
+def _set_active_archive(log_dir: Path, archive_path: Path | None) -> None:
+    """Set or clear the currently opened archive."""
+    marker = _active_archive_marker(log_dir)
+    if archive_path is None:
+        try:
+            marker.unlink()
+        except FileNotFoundError:
+            pass
+        return
+    marker.write_text(str(archive_path), encoding="utf-8")
+
+
+def _list_archives(log_dir: Path) -> list[Path]:
+    """Return all archived hit-log packages, newest first."""
+    archive_dir = log_dir / "archives"
+    if not archive_dir.exists():
+        return []
+    return sorted(archive_dir.glob("hits-*.tar.gz"), reverse=True)
+
+
+def _resolve_archive(log_dir: Path, name: str) -> Path | None:
+    """Resolve *name* to an archive path. *name* may be a full filename or a date prefix."""
+    if name.endswith(".tar.gz"):
+        candidate = log_dir / "archives" / name
+        if candidate.exists():
+            return candidate
+    # Try as a date prefix.
+    candidates = [p for p in _list_archives(log_dir) if p.stem.startswith(f"hits-{name}")]
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        print(f"Ambiguous archive prefix '{name}': matches {', '.join(p.name for p in candidates)}", file=sys.stderr)
+        return None
+    # Last resort: substring match anywhere in the filename.
+    candidates = [p for p in _list_archives(log_dir) if name in p.name]
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        print(f"Ambiguous archive name '{name}': matches {', '.join(p.name for p in candidates)}", file=sys.stderr)
+        return None
+    print(f"No archive matching '{name}' found in {log_dir / 'archives'}", file=sys.stderr)
+    return None
+
+
 def _iter_hits(log_dir: Path) -> Iterator[dict]:
-    """Yield JSON hit records from the hit log, oldest first."""
+    """Yield JSON hit records from the active archive or the live hit log."""
+    active = _get_active_archive(log_dir)
+    if active is not None:
+        with tarfile.open(active, "r:gz") as tar:
+            for member in tar.getmembers():
+                if not member.isfile():
+                    continue
+                fh = tar.extractfile(member)
+                if fh is None:
+                    continue
+                for line in fh:
+                    line = line.decode("utf-8", errors="ignore").strip()
+                    if not line:
+                        continue
+                    try:
+                        yield json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+        return
     yield from _read_hits(log_dir / "hits.logl")
+
+
+def _print_active_archive_notice(log_dir: Path) -> None:
+    active = _get_active_archive(log_dir)
+    if active is not None:
+        print(f"[reading from archive {active.name}; use --close-archive to return to live log]")
+
+
+def cmd_list_archives(args: argparse.Namespace) -> int:
+    _, log_dir = _load_config(args)
+    archives = _list_archives(log_dir)
+    active = _get_active_archive(log_dir)
+    if not archives:
+        print("No archived hit-log packages found.")
+        return 0
+    print(f"{'#':>4} {'ARCHIVE':40} {'SIZE':>12} {'STATE':>10}")
+    print("-" * 72)
+    for i, path in enumerate(archives, 1):
+        size = path.stat().st_size
+        size_str = _human_size(size)
+        state = "(open)" if active == path else ""
+        print(f"{i:>4} {path.name:40} {size_str:>12} {state:>10}")
+    return 0
+
+
+def _human_size(size: int) -> str:
+    for unit in ("B", "KiB", "MiB", "GiB"):
+        if size < 1024 or unit == "GiB":
+            return f"{size:.1f} {unit}" if unit != "B" else f"{size} B"
+        size /= 1024
+    return f"{size:.1f} GiB"
+
+
+def cmd_open_archive(args: argparse.Namespace) -> int:
+    _, log_dir = _load_config(args)
+    if not args.open_archive:
+        print("Usage: --open-archive <filename-or-date>", file=sys.stderr)
+        return 2
+    path = _resolve_archive(log_dir, args.open_archive)
+    if path is None:
+        return 1
+    _set_active_archive(log_dir, path)
+    print(f"Opened archive {path.name}. Subsequent commands read from it until --close-archive.")
+    return 0
+
+
+def cmd_close_archive(args: argparse.Namespace) -> int:
+    _, log_dir = _load_config(args)
+    active = _get_active_archive(log_dir)
+    _set_active_archive(log_dir, None)
+    if active is not None:
+        print(f"Closed archive {active.name}. Reading from live hit log.")
+    else:
+        print("No archive was open. Reading from live hit log.")
+    return 0
 
 
 def _format_hit(obj: dict) -> str:
@@ -240,6 +393,7 @@ def _filter_hits(hits: Iterable[dict], args: argparse.Namespace) -> list[dict]:
 
 def cmd_recent(args: argparse.Namespace) -> int:
     _, log_dir = _load_config(args)
+    _print_active_archive_notice(log_dir)
     hits = _sort_hits(list(_iter_hits(log_dir)))
     hits = _filter_hits(hits, args)
     limit = args.last if args.last is not None else DEFAULT_TAIL
@@ -283,6 +437,16 @@ def _tail_matches(args: argparse.Namespace, obj: dict) -> bool:
 
 def cmd_tail(args: argparse.Namespace) -> int:
     _, log_dir = _load_config(args)
+
+    active = _get_active_archive(log_dir)
+    if active is not None:
+        # Archives are static; just print their contents once.
+        _print_active_archive_notice(log_dir)
+        for obj in _iter_hits(log_dir):
+            if _tail_matches(args, obj):
+                print(_format_hit(obj))
+        return 0
+
     path = log_dir / "hits.logl"
     if not path.exists():
         print(f"Hit log not found: {path}")
@@ -449,18 +613,22 @@ def cmd_payloads(args: argparse.Namespace) -> int:
 
 def cmd_stats(args: argparse.Namespace) -> int:
     _, log_dir = _load_config(args)
+    _print_active_archive_notice(log_dir)
     hits = list(_iter_hits(log_dir))
     hits = _filter_hits(hits, args)
 
-    archived_stats = _load_hits_stats(log_dir / "hits-stats.json")
-    recent_stats = _aggregate_hits(hits)
-    if getattr(args, "all_time", False):
+    active = _get_active_archive(log_dir)
+    if active is not None:
+        # When an archive is open, show stats for that archive only.
+        merged = _aggregate_hits(hits)
+    elif getattr(args, "all_time", False):
         # Also scan every .tar.gz archive and merge its hits.  This is slow
         # but lets the user get truly complete all-time statistics.
+        archived_stats = _load_hits_stats(log_dir / "hits-stats.json")
+        recent_stats = _aggregate_hits(hits)
         archive_dir = log_dir / "archives"
         if archive_dir.exists():
             for archive_path in sorted(archive_dir.glob("hits-*.tar.gz")):
-                import tarfile
                 with tarfile.open(archive_path, "r:gz") as tar:
                     for member in tar.getmembers():
                         if member.isfile():
@@ -481,6 +649,8 @@ def cmd_stats(args: argparse.Namespace) -> int:
         merged = _merge_stats(archived_stats, recent_stats)
     else:
         # Default: merge the persistent archived stats with the current log.
+        archived_stats = _load_hits_stats(log_dir / "hits-stats.json")
+        recent_stats = _aggregate_hits(hits)
         merged = _merge_stats(archived_stats, recent_stats)
 
     if merged["total"] == 0:
@@ -492,10 +662,11 @@ def cmd_stats(args: argparse.Namespace) -> int:
     dports = Counter({int(k): v for k, v in merged["dports"].items()})
 
     print(f"Total hits: {merged['total']}")
-    if getattr(args, "all_time", False):
+    if active is None and getattr(args, "all_time", False):
         print("(Includes all archived logs; this may be slower.)")
-    elif archived_stats["total"]:
-        print(f"({archived_stats['total']} from archives + {recent_stats['total']} current)")
+    elif active is None and merged["total"] != recent_stats["total"]:
+        archived_total = merged["total"] - recent_stats["total"]
+        print(f"({archived_total} from archives + {recent_stats['total']} current)")
     print()
     print("Top source IPs:")
     for ip, count in ips.most_common(10):
@@ -561,6 +732,7 @@ def _hit_timestamp(hit_time: str) -> float:
 
 def cmd_recent_payloads(args: argparse.Namespace) -> int:
     _, log_dir = _load_config(args)
+    _print_active_archive_notice(log_dir)
     hits = _sort_hits(list(_iter_hits(log_dir)))
     hits = _filter_hits(hits, args)
     limit = args.last if args.last is not None else DEFAULT_TAIL
@@ -740,7 +912,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(raw_argv)
 
     # If no viewing mode was selected, default to --recent.
-    if not any((args.recent, args.tail, args.stats, args.dropped, args.payloads, args.recent_payloads, args.archive)):
+    if not any((args.recent, args.tail, args.stats, args.dropped, args.payloads, args.recent_payloads, args.archive, args.list_archives, args.open_archive, args.close_archive)):
         args.recent = True
 
     if args.archive:

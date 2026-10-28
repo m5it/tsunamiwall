@@ -17,6 +17,9 @@ All notable changes to TsunamiWall are documented in this file.
 - **`tsunamiwall-logs --archive`** — manually triggers the same archive+stats-merge operation that the daemon performs automatically.
 - **`tsunamiwall-logs --stats` merges archived statistics** — by default, statistics now combine the persistent `hits-stats.json` (all-time archived totals) with the current unpacked `hits.logl`, so you see totals from the beginning, not just the latest window.
 - **`tsunamiwall-logs --stats --all-time`** — also scans every archived `.tar.gz` to produce complete all-time statistics. This is slower but fully accurate.
+- **`tsunamiwall-logs --list-archives`** — lists all archived `.tar.gz` packages, newest first, with size and which one is currently open.
+- **`tsunamiwall-logs --open-archive <name>`** — opens an archived package by filename or date prefix. Once opened, `--recent`, `--stats`, `--tail`, `--by-ip`, etc. read from that archive instead of the live `hits.logl`, so you can search through old logs as if they were current.
+- **`tsunamiwall-logs --close-archive`** — closes the opened archive and returns viewing commands to the live `hits.logl`.
 
 ## [1.3.1] - 2026-10-23
 
