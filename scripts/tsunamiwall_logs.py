@@ -27,7 +27,7 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from tsunamiwall.config import load_config
+from tsunamiwall.config import Config, load_config
 from tsunamiwall.util import _format_hit_time
 from tsunamiwall.rotation import (
     _aggregate_hits,
@@ -225,29 +225,34 @@ def _set_active_archive(log_dir: Path, archive_path: Path | None) -> None:
     marker.write_text(str(archive_path), encoding="utf-8")
 
 
-def _list_archives(log_dir: Path) -> list[Path]:
+def _configured_archive_dir(log_dir: Path, cfg: Config | None) -> Path:
+    return Path(getattr(cfg, "hit_log_archive_path", log_dir / "archives"))
+
+
+def _list_archives(log_dir: Path, archive_dir: Path | None = None) -> list[Path]:
     """Return all archived hit-log packages, newest first."""
-    archive_dir = log_dir / "archives"
+    archive_dir = archive_dir or log_dir / "archives"
     if not archive_dir.exists():
         return []
     return sorted(archive_dir.glob("hits-*.tar.gz"), reverse=True)
 
 
-def _resolve_archive(log_dir: Path, name: str) -> Path | None:
+def _resolve_archive(log_dir: Path, name: str, archive_dir: Path | None = None) -> Path | None:
     """Resolve *name* to an archive path. *name* may be a full filename or a date prefix."""
+    archive_dir = archive_dir or log_dir / "archives"
     if name.endswith(".tar.gz"):
-        candidate = log_dir / "archives" / name
+        candidate = archive_dir / name
         if candidate.exists():
             return candidate
     # Try as a date prefix.
-    candidates = [p for p in _list_archives(log_dir) if p.stem.startswith(f"hits-{name}")]
+    candidates = [p for p in _list_archives(log_dir, archive_dir) if p.stem.startswith(f"hits-{name}")]
     if len(candidates) == 1:
         return candidates[0]
     if len(candidates) > 1:
         print(f"Ambiguous archive prefix '{name}': matches {', '.join(p.name for p in candidates)}", file=sys.stderr)
         return None
     # Last resort: substring match anywhere in the filename.
-    candidates = [p for p in _list_archives(log_dir) if name in p.name]
+    candidates = [p for p in _list_archives(log_dir, archive_dir) if name in p.name]
     if len(candidates) == 1:
         return candidates[0]
     if len(candidates) > 1:
@@ -287,8 +292,8 @@ def _print_active_archive_notice(log_dir: Path) -> None:
 
 
 def cmd_list_archives(args: argparse.Namespace) -> int:
-    _, log_dir = _load_config(args)
-    archives = _list_archives(log_dir)
+    cfg, log_dir = _load_config(args)
+    archives = _list_archives(log_dir, _configured_archive_dir(log_dir, cfg))
     active = _get_active_archive(log_dir)
     if not archives:
         print("No archived hit-log packages found.")
@@ -312,11 +317,15 @@ def _human_size(size: int) -> str:
 
 
 def cmd_open_archive(args: argparse.Namespace) -> int:
-    _, log_dir = _load_config(args)
+    cfg, log_dir = _load_config(args)
     if not args.open_archive:
         print("Usage: --open-archive <filename-or-date>", file=sys.stderr)
         return 2
-    path = _resolve_archive(log_dir, args.open_archive)
+    path = _resolve_archive(
+        log_dir,
+        args.open_archive,
+        _configured_archive_dir(log_dir, cfg),
+    )
     if path is None:
         return 1
     _set_active_archive(log_dir, path)
@@ -612,7 +621,7 @@ def cmd_payloads(args: argparse.Namespace) -> int:
 
 
 def cmd_stats(args: argparse.Namespace) -> int:
-    _, log_dir = _load_config(args)
+    cfg, log_dir = _load_config(args)
     _print_active_archive_notice(log_dir)
     hits = list(_iter_hits(log_dir))
     hits = _filter_hits(hits, args)
@@ -624,11 +633,10 @@ def cmd_stats(args: argparse.Namespace) -> int:
     elif getattr(args, "all_time", False):
         # Also scan every .tar.gz archive and merge its hits.  This is slow
         # but lets the user get truly complete all-time statistics.
-        archived_stats = _load_hits_stats(log_dir / "hits-stats.json")
         recent_stats = _aggregate_hits(hits)
-        archive_dir = log_dir / "archives"
+        archive_dir = _configured_archive_dir(log_dir, cfg)
         if archive_dir.exists():
-            for archive_path in sorted(archive_dir.glob("hits-*.tar.gz")):
+            for archive_path in sorted(_list_archives(log_dir, archive_dir)):
                 with tarfile.open(archive_path, "r:gz") as tar:
                     for member in tar.getmembers():
                         if member.isfile():
@@ -645,8 +653,7 @@ def cmd_stats(args: argparse.Namespace) -> int:
                                     continue
                                 if _filter_hits([h], args):
                                     hits.append(h)
-            recent_stats = _aggregate_hits(hits)
-        merged = _merge_stats(archived_stats, recent_stats)
+        merged = _aggregate_hits(hits)
     else:
         # Default: merge the persistent archived stats with the current log.
         archived_stats = _load_hits_stats(log_dir / "hits-stats.json")

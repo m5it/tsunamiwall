@@ -21,6 +21,9 @@ All notable changes to TsunamiWall are documented in this file.
 - **`tsunamiwall-logs --open-archive <name>`** — opens an archived package by filename or date prefix. Once opened, `--recent`, `--stats`, `--tail`, `--by-ip`, etc. read from that archive instead of the live `hits.logl`, so you can search through old logs as if they were current.
 - **`tsunamiwall-logs --close-archive`** — closes the opened archive and returns viewing commands to the live `hits.logl`.
 
+### Fixed
+- `tsunamiwall-logs --stats --all-time` no longer double-counts archive totals and applies filters to scanned archived hits; archive browsing honors `hit_log_archive_dir`.
+
 ## [1.3.1] - 2026-10-23
 
 ### Fixed
