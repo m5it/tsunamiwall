@@ -929,6 +929,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Archived hit log to {archived}")
         return 0
 
+    if args.open_archive:
+        return cmd_open_archive(args)
+
+    if args.close_archive:
+        return cmd_close_archive(args)
+
+    if args.list_archives:
+        return cmd_list_archives(args)
+
     dispatch = {
         "recent": cmd_recent,
         "tail": cmd_tail,
@@ -955,6 +964,10 @@ def main(argv: list[str] | None = None) -> int:
         mode = "payloads"
     elif args.recent_payloads:
         mode = "recent-payloads"
+
+    if mode is None:
+        parser.print_help()
+        return 2
 
     # enough here.  The old by-ip/by-country/by-dst sub-commands also map to
     # "recent" but set their filter before delegating.
